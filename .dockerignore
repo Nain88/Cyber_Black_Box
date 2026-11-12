@@ -18,3 +18,8 @@ source
 output
 web/dist
 *.log
+
+.pnpm-store
+sensor-data
+sensor-agent-data
+.env.*

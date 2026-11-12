@@ -24,3 +24,5 @@ release/
 
 sensor-data/
 sensor-agent-data/
+
+.pnpm-store/

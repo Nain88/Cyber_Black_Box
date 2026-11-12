@@ -1,0 +1,109 @@
+{
+  "name": "Cloud Box Kali Lab Add-on",
+  "target_repository": "Nain88/cloud-box",
+  "baseline_commit": "96d78bc54a88e37536d51fde5f5ff408a6e65698",
+  "installation": "Extract into the root of the existing cloud-box checkout, preserving existing files.",
+  "notes": "Only new paths are included; no existing Cloud Box core file is overwritten.",
+  "files": [
+    {
+      "path": ".github/workflows/kali-lab-tests.yml",
+      "bytes": 691,
+      "sha256": "0465504998916edd4c804d3d7108db27f061f3f8c3c566e20bc90d0aed9d99c0"
+    },
+    {
+      "path": "LAB-SETUP.md",
+      "bytes": 11788,
+      "sha256": "73bf79d731869022e9426fcbfa98a8764b2e83c5b5d192918242eb9bdab159f0"
+    },
+    {
+      "path": "compose.lab.yml",
+      "bytes": 863,
+      "sha256": "476247d83f55cab49ac3df586ee027a7cb41c4e9e182103eac88f335e902bc3f"
+    },
+    {
+      "path": "lab/.env.example",
+      "bytes": 264,
+      "sha256": "f6558ebd801cd0b83c45ce14dadf54cf65313c6df1125365c9a245ba4b7b2801"
+    },
+    {
+      "path": "lab/.gitignore",
+      "bytes": 75,
+      "sha256": "b338748052baccb16fd6fdc16907312225c883a8b744adddf4f590c1caffa3b6"
+    },
+    {
+      "path": "lab/controller/Dockerfile",
+      "bytes": 261,
+      "sha256": "df6740cacaa7b5da414c64cbb1d1847ce20ddfc1863e176415b67d12138b411e"
+    },
+    {
+      "path": "lab/controller/controller.py",
+      "bytes": 13484,
+      "sha256": "cc020625c3b939f4eb56390f188a9fcdcd40b9763ffa0070186e3dcbdd0d7783"
+    },
+    {
+      "path": "lab/controller/static/app.js",
+      "bytes": 3974,
+      "sha256": "3b87713e0c6f55ee767571ccf73d0c8cf3f1a41002bfc0de1a3370c70501a868"
+    },
+    {
+      "path": "lab/controller/static/index.html",
+      "bytes": 6078,
+      "sha256": "8cb4ac321d7b6d1f9f83269ccf1b5ac548c362d9ce7cc27e50d0056031661f51"
+    },
+    {
+      "path": "lab/controller/static/styles.css",
+      "bytes": 8396,
+      "sha256": "ea2d12df9c3789d95d6ee06dc90207e37bc90af263b89499fa0a7ed4e7c87c98"
+    },
+    {
+      "path": "lab/docs/ARCHITECTURE.md",
+      "bytes": 4789,
+      "sha256": "bdb98c8272f194c159f1d82ab6f78918a22ef20173e357a8bc2e20de1b777ee7"
+    },
+    {
+      "path": "lab/kali/kali-lab.service.example",
+      "bytes": 726,
+      "sha256": "bcec8fd4817e595b1cd1a59f227dcde87e61d56ee0c8cd9c4a2b9c476d1abe3a"
+    },
+    {
+      "path": "lab/kali/start-kali.sh",
+      "bytes": 410,
+      "sha256": "90ba8fc40ffdcfc83dd3972d2b15f02964b3fb2eb2469a2ffeb6db9e09deb09e"
+    },
+    {
+      "path": "lab/kali/target.py",
+      "bytes": 10302,
+      "sha256": "aebe1ed6e24751a29559920c201498e2b5fb6d0ad9df237efac8d38fd51ea65c"
+    },
+    {
+      "path": "lab/relay/relay.py",
+      "bytes": 11563,
+      "sha256": "fcb86c826233a564652e73a7ea54caf513c6e96663bbcd68afa566af6f349c06"
+    },
+    {
+      "path": "lab/tests/test_lab.py",
+      "bytes": 7951,
+      "sha256": "7d8be1b0a04d391e34a3c59e94b6658b414a74b1ee3a7fc71f1c65f2b25b2d57"
+    },
+    {
+      "path": "lab/windows/Configure-CloudBox-Intake.ps1",
+      "bytes": 3110,
+      "sha256": "a6bc28e44101d2318b6566f535c51e3a4ca59ebd0e0f93abb5dc2a1843ab664f"
+    },
+    {
+      "path": "lab/windows/Start-Attack-Lab.ps1",
+      "bytes": 1794,
+      "sha256": "ebf04dd953b451459955a9e4227e8b99dfedce4d6e166aec18f02311b7193784"
+    },
+    {
+      "path": "lab/windows/Start-Relay.ps1",
+      "bytes": 1790,
+      "sha256": "ac10255d7431b5b28efbe802e463fbb68d959b8b6b7fc736407a98572d078c41"
+    },
+    {
+      "path": "lab/windows/Test-Lab-Connectivity.ps1",
+      "bytes": 1453,
+      "sha256": "72c97a96630c2e823f3b18cc1aaa4c7b6d19d4ba787023d03111c80244ef4554"
+    }
+  ]
+}

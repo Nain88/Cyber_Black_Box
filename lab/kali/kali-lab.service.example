@@ -1,0 +1,20 @@
+# Optional systemd example. Never put a real secret into a GitHub-tracked file.
+# Copy to /etc/systemd/system/cloudbox-kali-lab.service and edit paths/user.
+# Store LAB_SHARED_KEY in a root-readable-only EnvironmentFile on Kali.
+[Unit]
+Description=Cloud Box Kali lab decoy (authorized private network only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kali
+WorkingDirectory=/home/kali/cloud-box/lab/kali
+EnvironmentFile=/home/kali/.config/cloudbox-lab/secret.env
+ExecStart=/usr/bin/python3 /home/kali/cloud-box/lab/kali/target.py --host 0.0.0.0 --port 8088 --data /home/kali/cloudbox-lab-data
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

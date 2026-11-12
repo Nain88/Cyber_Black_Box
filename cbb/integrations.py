@@ -96,7 +96,7 @@ def import_bytes(service, actor_id, case_id, name, source, fmt, content, provena
                 from datetime import datetime, timezone
                 try:
                     timestamp = datetime.fromtimestamp(int(parsed["__REALTIME_TIMESTAMP"]) / 1000000, timezone.utc).isoformat()
-                except (ValueError, OverflowError, OSError):
+                except (ValueError, TypeError, OverflowError, OSError):
                     timestamp = None
             if source != "suricata.eve":
                 event_type = str(parsed.get("event_type", event_type))[:120]

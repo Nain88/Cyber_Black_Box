@@ -108,3 +108,82 @@ def test_strict_input_and_windows_provider_scoping(service):
 def test_lost_signing_key_fails_closed(service):
     (service.root/"keys/signing.pem").unlink()
     with pytest.raises(ValueError,match="Signing key does not match"):Service(Settings(data=service.root,workers=False))
+
+
+@pytest.mark.parametrize("source_type,raw", [
+    ("lab.fixture", b'{"severity":null}'),
+    ("lab.fixture", b'{"severity":{}}'),
+    ("lab.fixture", b'{"severity":"invalid"}'),
+    ("suricata.eve", b'{"event_type":"alert","alert":{"severity":[]}}'),
+])
+def test_malformed_severity_preserves_raw_and_does_not_stall(service, source_type, raw):
+    accepted = service.accept(service.test_collector, [
+        wire("1", raw=raw, source_type=source_type), wire("2")])
+    service.seal_pending()
+    with service.db.read() as c:
+        for result, expected in zip(accepted, [raw, b'{"summary":"Fixture","severity":3}']):
+            receipt = row(c, select(D.receipts).where(D.receipts.c.id == result["receipt_id"]))
+            assert receipt["state"] == "SEALED"
+            evidence = row(c, select(D.evidence).where(D.evidence.c.id == result["evidence_id"]))
+            assert service.read_raw(c, evidence) == expected
+        first = row(c, select(D.evidence).where(D.evidence.c.id == accepted[0]["evidence_id"]))
+        assert "PARSE_ERROR" in json.loads(first["envelope"])["quality_flags"]
+
+
+@pytest.mark.parametrize("payload", [b'{"value":1e999}', b'{"value":"\\ud800"}'])
+def test_strict_json_rejects_nonfinite_and_invalid_unicode(payload):
+    with pytest.raises(ValueError):
+        strict_json(payload)
+
+
+
+def test_out_of_range_timezone_is_unparseable():
+    from cbb.schema import parse_time
+    assert parse_time("0001-01-01T00:00:00+01:00") is None
+
+
+def test_sealing_quarantines_one_parser_type_error_and_continues(service, monkeypatch):
+    import cbb.service as module
+    accepted = service.accept(service.test_collector, [wire("1"), wire("2")])
+    original = module.normalize
+    def parser(wire_value, *args):
+        if wire_value["source_seq"] == "1":
+            raise TypeError("Malformed parser field")
+        return original(wire_value, *args)
+    monkeypatch.setattr(module, "normalize", parser)
+    service.seal_pending()
+    with service.db.read() as c:
+        states = [row(c, select(D.receipts).where(D.receipts.c.id == item["receipt_id"]))["state"] for item in accepted]
+    assert states == ["QUARANTINED", "SEALED"]
+
+
+@pytest.mark.parametrize("source,media,raw", [
+    ("suricata.eve", "application/json", b'{"timestamp":"2026-10-29T10:00:00Z","event_type":"alert"}'),
+    ("windows.event", "application/xml", b'<Event><System><TimeCreated SystemTime="2026-10-29T10:00:00Z"/></System></Event>'),
+    ("zeek", "application/json", b'{"ts":1793268000}'),
+])
+def test_source_timestamp_finalizes_quality_flags(service, source, media, raw):
+    event = wire(raw=raw, source_type=source, raw_media_type=media, original_timestamp=None)
+    normalized = normalize(event, service.test_collector, "test", "2026-10-29T10:00:00Z", {})
+    assert normalized["occurred_at"] is not None
+    assert normalized["time_quality"]["parsed"]
+    assert "UNKNOWN_EVENT_TIME" not in normalized["quality_flags"]
+
+
+@pytest.mark.parametrize("revocation", ["inactive", "role", "membership", "evidence"])
+def test_queued_export_rechecks_authorization(service, revocation, monkeypatch):
+    from cbb.service import DomainError
+    actor, owner, cid, eid = uid(), uid(), uid(), uid()
+    with service.db.tx() as c:
+        for ident in (actor, owner):
+            c.execute(D.users.insert().values(id=ident, username=ident, role="investigator", active=True, created_at=now()))
+        c.execute(D.cases.insert().values(id=cid, title="Lab", owner_id=owner, status="OPEN", version=1, created_at=now(), updated_at=now()))
+        if revocation != "membership":
+            c.execute(D.case_members.insert().values(case_id=cid,user_id=actor))
+        if revocation == "inactive": c.execute(update(D.users).where(D.users.c.id==actor).values(active=False))
+        if revocation == "role": c.execute(update(D.users).where(D.users.c.id==actor).values(role="auditor"))
+    def forbidden(*args, **kwargs):
+        pytest.fail("Revoked job must not generate an export")
+    monkeypatch.setattr(service, "make_export", forbidden)
+    with pytest.raises(DomainError):
+        service.run_job({"id":uid(), "kind":"export", "actor_id":actor, "case_id":cid, "payload":json.dumps({"evidence_ids":[eid],"case_version":1})})

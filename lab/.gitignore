@@ -1,0 +1,6 @@
+/.env
+/.lab-state/
+/kali/.lab-kali-data/
+__pycache__/
+.pytest_cache/
+*.pyc

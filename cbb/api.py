@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import threading
@@ -30,6 +31,30 @@ log=logging.getLogger("cbb")
 passwords=PasswordHasher()
 
 def public_user(user):return {k:user[k] for k in ("id","username","role","active")}
+
+def body_integer(body, name, default):
+    value = body.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise DomainError("INVALID_INPUT", f"{name} must be an integer", 422)
+    try:
+        return int(value)
+    except ValueError:
+        raise DomainError("INVALID_INPUT", f"{name} must be an integer", 422)
+
+
+def case_text(values):
+    for name, maximum in (("title", 200), ("description", 10000), ("conclusion", 10000)):
+        if name not in values:
+            continue
+        value = values[name]
+        if not isinstance(value, str) or len(value) > maximum:
+            raise DomainError("INVALID_INPUT", f"{name} must be text of at most {maximum} characters", 422)
+        if name == "title":
+            value = value.strip()
+            if len(value) < 3:
+                raise DomainError("CASE_TITLE", "Title requires 3–200 characters", 422)
+            values[name] = value
+
 
 def create_app(settings=None):
     service=Service(settings)
@@ -115,8 +140,12 @@ def create_app(settings=None):
                     body.extend(chunk)
                     if len(body)>limit:return JSONResponse({"detail":"Request too large"},413)
                 request._body=bytes(body)
-                if "application/json" in request.headers.get("content-type","") and body:
-                    try:strict_json(body)
+                content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                json_body = not content_type or content_type == "application/json" or (content_type.startswith("application/") and content_type.endswith("+json"))
+                # Match FastAPI's JSON media types, including an omitted header.
+                # Artifact chunks are opaque bytes and must not be parsed as JSON.
+                if json_body and body and "/chunks/" not in request.url.path:
+                    try:canon(strict_json(body))
                     except (ValueError,UnicodeError):return JSONResponse({"detail":"Invalid or duplicate-key JSON"},400)
         response=await call_next(request)
         response.headers["X-Request-ID"]=request.state.request_id
@@ -243,7 +272,14 @@ def create_app(settings=None):
         secret=str(body.get("secret",""))
         if not secret:
             secret=pyotp.random_base32();return {"secret":secret,"uri":pyotp.TOTP(secret).provisioning_uri(u["username"],issuer_name="Cyber Black Box")}
-        if not pyotp.TOTP(secret).verify(str(body.get("otp","")),valid_window=0):raise DomainError("MFA_INVALID","Verification code does not match",422)
+        secret = secret.upper()
+        if not re.fullmatch(r"[A-Z2-7]{16,128}", secret):
+            raise DomainError("MFA_INVALID", "Provide a valid Base32 MFA secret", 422)
+        try:
+            valid = pyotp.TOTP(secret).verify(str(body.get("otp", "")), valid_window=0)
+        except (ValueError, TypeError):
+            valid = False
+        if not valid:raise DomainError("MFA_INVALID","Verification code does not match",422)
         with service.db.tx() as c:
             c.execute(update(D.users).where(D.users.c.id==u["id"]).values(totp_secret=secret,last_totp_counter=-1))
             service.audit(c,u["id"],"MFA_ENABLED",u["id"])
@@ -329,12 +365,15 @@ def create_app(settings=None):
     @app.put("/api/v1/collectors/{collector_id}/configuration")
     def configure_collector(collector_id:str,body:dict,u=Depends(admin)):
         if not isinstance(body.get("paths",[]),list) or len(body.get("paths",[]))>50:raise DomainError("INVALID_CONFIG","Provide at most 50 watched paths",422)
+        channels = body.get("channels", ["System"])
+        if not isinstance(channels, list) or len(channels) > 50 or any(not isinstance(x, str) for x in channels):
+            raise DomainError("INVALID_CONFIG", "Provide at most 50 channel names", 422)
         with service.db.tx() as c:
             col=row(c,select(D.collectors).where(D.collectors.c.id==collector_id))
             if not col:raise DomainError("NOT_FOUND","Collector not found",404)
             intake=body.get('intake_case_id',loads(col['configuration']).get('intake_case_id'))
             if intake:service.allowed_case(c,u,intake,write=True)
-            conf={"paths":[str(x)[:500] for x in body.get("paths",[])],"channels":[str(x)[:100] for x in body.get("channels",["System"])],"poll_seconds":max(2,min(60,int(body.get("poll_seconds",5)))),"max_file_bytes":min(20971520,max(1024,int(body.get("max_file_bytes",20971520))))}
+            conf={"paths":[str(x)[:500] for x in body.get("paths",[])],"channels":[str(x)[:100] for x in body.get("channels",["System"])],"poll_seconds":max(2,min(60,body_integer(body,"poll_seconds",5))),"max_file_bytes":min(20971520,max(1024,body_integer(body,"max_file_bytes",20971520)))}
             conf['intake_case_id']=intake or None
             c.execute(update(D.collectors).where(D.collectors.c.id==collector_id).values(configuration=dumps(conf),config_version=col["config_version"]+1));service.audit(c,u["id"],"COLLECTOR_CONFIGURED",collector_id,details=conf)
         return {"ok":True}
@@ -400,6 +439,7 @@ def create_app(settings=None):
             service.audit(c,u["id"],"RAW_ACCESS",eid)
             try:data=service.read_raw(c,item)
             except OSError:raise DomainError("RAW_UNAVAILABLE","Raw evidence unavailable",503)
+            except (ValueError,KeyError,TypeError):raise DomainError("RAW_MODIFIED","Raw evidence wrapper is invalid",409)
             if sha(data)!=item["raw_sha256"]:raise DomainError("RAW_MODIFIED","Raw evidence hash mismatch",409)
         return Response(data,media_type="application/octet-stream",headers={"Content-Disposition":f'attachment; filename="{eid}.raw"',"X-Content-SHA256":sha(data)})
 
@@ -409,11 +449,12 @@ def create_app(settings=None):
 
     @app.post("/api/v1/cases")
     def create_case(body:dict,u=Depends(investigator)):
+        case_text(body)
         title=str(body.get("title","")).strip()
         if not 3<=len(title)<=200:raise DomainError("CASE_TITLE","Title requires 3–200 characters",422)
         cid=uid()
         with service.db.tx() as c:
-            c.execute(D.cases.insert().values(id=cid,title=title,description=str(body.get("description",""))[:10000],owner_id=u["id"],status="OPEN",severity=max(1,min(5,int(body.get("severity",2)))),version=1,hold=True,created_at=now(),updated_at=now()));service.audit(c,u["id"],"CASE_CREATED",cid)
+            c.execute(D.cases.insert().values(id=cid,title=title,description=str(body.get("description",""))[:10000],owner_id=u["id"],status="OPEN",severity=max(1,min(5,body_integer(body,"severity",2))),version=1,hold=True,created_at=now(),updated_at=now()));service.audit(c,u["id"],"CASE_CREATED",cid)
         return {"id":cid}
 
     @app.get("/api/v1/cases/{cid}")
@@ -430,6 +471,7 @@ def create_app(settings=None):
             case=service.allowed_case(c,u,cid,True)
             if body.get("version")!=case["version"]:raise DomainError("VERSION_CONFLICT","Case changed; refresh before saving",409)
             values={k:body[k] for k in ("title","description","status","conclusion","hold") if k in body}
+            case_text(values)
             if "status" in values and values["status"] not in ("OPEN","TRIAGE","INVESTIGATING","REVIEW","CLOSED"):raise DomainError("STATUS","Unknown status",422)
             if values.get("status")=="CLOSED" and not str(values.get("conclusion") or case["conclusion"] or "").strip():raise DomainError("CONCLUSION","A conclusion is required before closing",422)
             if "hold" in values and not isinstance(values["hold"],bool):raise DomainError("HOLD","Hold must be true or false",422)
@@ -450,7 +492,7 @@ def create_app(settings=None):
     @app.post("/api/v1/cases/{cid}/evidence")
     def add_evidence(cid:str,body:dict,u=Depends(investigator)):
         ids=body.get("evidence_ids",[])
-        if not ids or len(ids)>200:raise DomainError("SELECTION","Select between 1 and 200 records",422)
+        if not isinstance(ids,list) or not ids or len(ids)>200 or any(not isinstance(eid,str) for eid in ids):raise DomainError("SELECTION","Select between 1 and 200 records",422)
         with service.db.tx() as c:
             case=service.allowed_case(c,u,cid,True)
             for eid in ids:

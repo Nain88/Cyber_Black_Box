@@ -1,0 +1,26 @@
+# Add-on only. Does NOT replace Cloud Box's existing dashboard.
+# docker compose --env-file lab/.env -f compose.lab.yml up -d --build
+name: cloud-box-kali-lab
+services:
+  attacker-dashboard:
+    build:
+      context: ./lab/controller
+    environment:
+      LAB_BIND: "0.0.0.0"
+      KALI_TARGET_URL: "http://${KALI_IP:?Set KALI_IP in lab/.env}:8088"
+      LAB_OPERATOR_PASSWORD: "${LAB_OPERATOR_PASSWORD:?Set LAB_OPERATOR_PASSWORD in lab/.env}"
+    ports:
+      - "127.0.0.1:8844:8844"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    mem_limit: 192m
+    cpus: 1.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8844/health', timeout=2)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3

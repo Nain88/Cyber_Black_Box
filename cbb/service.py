@@ -190,7 +190,7 @@ class Service:
                             c.execute(D.case_evidence.insert().values(id=uid(),case_id=intake,evidence_id=receipt['evidence_id'],case_version=version,active=True,reason='Configured live collector intake',created_at=now()))
                             self.audit(c,collector['id'],'CASE_INTAKE',intake,details={'evidence_id':receipt['evidence_id'],'case_version':version})
                     self.create_job(c,"analyze",collector["id"],{"evidence_id":receipt["evidence_id"]},operation_key="analyze:"+receipt["evidence_id"])
-            except (ValueError,KeyError,UnicodeError) as ex:
+            except (ValueError,KeyError,TypeError,OverflowError,UnicodeError) as ex:
                 with self.db.tx() as c:
                     c.execute(update(D.receipts).where(D.receipts.c.id==r["id"]).values(state="QUARANTINED",error=str(ex)[:500]))
                     self.audit(c,"system","QUARANTINE",r["id"],"ERROR",details={"error":str(ex)[:200]})
@@ -454,7 +454,16 @@ class Service:
                 c.execute(D.verifications.insert().values(id=uid(),job_id=job["id"],result=dumps(result),created_at=now()))
                 self.audit(c,job["actor_id"],"VERIFICATION_COMPLETED",job["id"],result["status"])
             return result
-        if job["kind"]=="export":return self.make_export(job["case_id"],job["actor_id"],payload["evidence_ids"],payload["case_version"],payload.get("case_snapshot"),payload.get("notes_snapshot"),payload.get("ai_snapshot"),job_id=job["id"])
+        if job["kind"]=="export":
+            with self.db.read() as c:
+                actor=row(c,select(D.users).where(D.users.c.id==job["actor_id"]))
+                if not actor or not actor["active"] or actor["role"] not in {"admin","investigator"}:
+                    raise DomainError("ACCESS_REVOKED","Export authorization is no longer active",403)
+                self.allowed_case(c,actor,job["case_id"],write=True)
+                current={r["evidence_id"] for r in rows(c,select(D.case_evidence.c.evidence_id).where(and_(D.case_evidence.c.case_id==job["case_id"],D.case_evidence.c.active==True)))}
+                if not set(payload["evidence_ids"]) <= current:
+                    raise DomainError("SCOPE_CHANGED","Case evidence changed; request a fresh export",409)
+            return self.make_export(job["case_id"],job["actor_id"],payload["evidence_ids"],payload["case_version"],payload.get("case_snapshot"),payload.get("notes_snapshot"),payload.get("ai_snapshot"),job_id=job["id"])
         if job["kind"]=="mega-backup":
             from .cloud import replicate_mega
             return replicate_mega(self,payload)

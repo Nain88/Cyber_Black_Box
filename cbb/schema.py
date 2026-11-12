@@ -24,13 +24,21 @@ def parse_time(value):
         dt=datetime.fromisoformat(str(value).replace("Z","+00:00"))
         if not dt.tzinfo: return None
         return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z")
-    except (ValueError,TypeError): return None
+    except (ValueError,TypeError,OverflowError): return None
 
 def normalize(wire, collector, evidence_id, received_at, raw_ref):
     raw=base64.b64decode(wire["raw_base64"],validate=True)
     flags=[]; subject={}; details={}; severity=1; event_type=wire["event_type"]
+    def severity_number(value, default):
+        try:
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                raise ValueError("Severity must be an integer")
+            return int(value)
+        except (ValueError, TypeError, OverflowError):
+            flags.append("PARSE_ERROR")
+            return default
+
     occurred=parse_time(wire.get("original_timestamp"))
-    if occurred is None: flags.append("UNKNOWN_EVENT_TIME")
     if wire['source_type'] == 'windows.firewall':
         from .firewall import parse_record
         try:
@@ -53,7 +61,7 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
         if wire["source_type"] == "suricata.eve":
             event_type="network."+str(data.get("event_type","unknown"))
             subject={"src_ip":data.get("src_ip"),"dst_ip":data.get("dest_ip"),"src_port":data.get("src_port"),"dst_port":data.get("dest_port"),"flow_id":str(data.get("flow_id",""))}
-            if isinstance(data.get("alert"),dict): severity={1:5,2:4,3:3}.get(data["alert"].get("severity"),2)
+            if isinstance(data.get("alert"),dict): severity={1:5,2:4,3:3}.get(severity_number(data["alert"].get("severity"), 0),2)
             occurred=parse_time(data.get("timestamp")) or occurred
         elif wire['source_type']=='zeek':
             from pathlib import PureWindowsPath
@@ -64,11 +72,10 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
             try:
                 occurred=parse_time(datetime.fromtimestamp(float(data['ts']),timezone.utc).isoformat())
             except (KeyError,ValueError,TypeError,OverflowError,OSError):pass
-            if occurred and 'UNKNOWN_EVENT_TIME' in flags:flags.remove('UNKNOWN_EVENT_TIME')
             details['summary']=f"Zeek {kind}: {subject.get('src_ip','?')} → {subject.get('dst_ip','?')} ({subject.get('uid','unknown UID')})"
         else:
             subject={k:data.get(k) for k in ("user","process","process_guid","pid","parent","path","src_ip","dst_ip","dst_port","action") if k in data}
-            severity=max(0,min(5,int(data.get("severity",1))))
+            severity=max(0,min(5,severity_number(data.get("severity",1), 1)))
             if wire["source_type"]=="linux.journal":
                 message=str(data.get("MESSAGE",data.get("message","")))
                 if "Failed password" in message or "authentication failure" in message:event_type="auth.failure";severity=3
@@ -91,11 +98,12 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
             if "sysmon" in details.get("provider","").lower():mappings.update({"1":"process.create","3":"network.connect","11":"file.create","13":"registry.change"})
             event_type=mappings.get(details.get("event_id"),event_type)
             if event_type=="log.clear":severity=4
-        except ET.ParseError:flags.append("PARSE_ERROR")
+        except (ET.ParseError, ValueError):flags.append("PARSE_ERROR")
     else:
         message=raw.decode("utf-8",errors="replace")
         details={"message":message[:8192]}
         if "Failed password" in message or "authentication failure" in message: event_type="auth.failure";severity=3
+    if occurred is None: flags.append("UNKNOWN_EVENT_TIME")
     # Only bounded normalized fields enter the envelope; raw bytes remain authoritative.
     alert=details.get("alert") if isinstance(details.get("alert"),dict) else {}
     summary=str(details.get("summary") or alert.get("signature") or details.get("message") or event_type)[:300]

@@ -95,7 +95,7 @@ def register_acquisition_routes(app, service, user, admin, investigator, collect
             timeout = int(body.get("timeout_seconds", 300))
         except (ValueError, TypeError):
             raise DomainError("INVALID_BOUNDS", "Byte and time limits must be integers", 422)
-        if template not in TEMPLATES or not isinstance(paths, list) or len(paths) > 100 or not all(isinstance(p, str) and 0 < len(p) <= 1024 for p in paths):
+        if not isinstance(template, str) or template not in TEMPLATES or not isinstance(paths, list) or len(paths) > 100 or not all(isinstance(p, str) and 0 < len(p) <= 1024 for p in paths):
             raise DomainError("INVALID_PLAN", "Use a supported template and at most 100 bounded paths", 422)
         if not 1 <= max_bytes <= service.settings.max_artifact_bytes or not 10 <= timeout <= 3600:
             raise DomainError("INVALID_BOUNDS", "Limits must be 1 byte to 4 GiB and 10 to 3600 seconds", 422)
@@ -180,7 +180,7 @@ def register_acquisition_routes(app, service, user, admin, investigator, collect
     @app.post("/api/v1/collector-jobs/{aid}/status")
     def status(aid: str, body: dict, col=Depends(collector)):
         state = body.get("state")
-        if state not in {"RUNNING", "COMPLETE", "FAILED"}:
+        if not isinstance(state, str) or state not in {"RUNNING", "COMPLETE", "FAILED"}:
             raise DomainError("JOB_STATE", "Use RUNNING, COMPLETE or FAILED", 422)
         with service.db.tx() as c:
             item = agent_job(c, col, aid, require_active=False)

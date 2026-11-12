@@ -65,3 +65,86 @@ def test_saved_views_are_private_and_versioned(app_client):
     assert c.get("/api/v1/saved-views").json()=={"version":0,"views":[]}
     assert c.put("/api/v1/saved-views",json={"version":0,"views":[{"name":"Network","source":"suricata.eve"}]}).status_code==200
     assert c.put("/api/v1/saved-views",json={"version":0,"views":[]}).status_code==409
+
+
+@pytest.mark.parametrize("severity", [None, {}, [], "invalid", True, 2.5])
+def test_case_rejects_invalid_severity(app_client, severity):
+    app, c = app_client
+    response = c.post("/api/v1/cases", json={"title":"Input validation", "severity":severity})
+    assert response.status_code == 422
+    assert len(c.get("/api/v1/cases").json()) == 1
+
+
+@pytest.mark.parametrize("field,value", [("title", {}), ("title", " "), ("description", []), ("conclusion", {})])
+def test_case_update_rejects_invalid_text(app_client, field, value):
+    app, c = app_client
+    case = c.get("/api/v1/cases").json()[0]
+    response = c.patch("/api/v1/cases/" + case["id"], json={"version":case["version"], field:value})
+    assert response.status_code == 422
+    assert c.get("/api/v1/cases/" + case["id"]).json()["version"] == case["version"]
+
+
+def test_invalid_mfa_secret_returns_validation_error(app_client):
+    app, c = app_client
+    response = c.post("/api/v1/auth/mfa", json={"password":"valid-test-password-123", "secret":"invalid!", "otp":"123456"})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("payload", ['{"value":1e999}', '{"value":9007199254740993}', '{"value":"\\ud800"}'])
+def test_invalid_json_returns_client_error(app_client, payload):
+    app, c = app_client
+    response = c.post("/api/v1/cases", content=payload, headers={"content-type":"application/json"})
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("body", [{"channels":None}, {"channels":"System"}, {"channels":[{}]}, {"poll_seconds":None}, {"max_file_bytes":{}}])
+def test_invalid_collector_configuration_is_rejected(app_client, body):
+    app, c = app_client
+    token = c.post("/api/v1/enrollments", json={"name":"config-test", "os":"fixture"}).json()["token"]
+    collector = c.post("/api/v1/collectors/enroll", json={"token":token}).json()
+    response = c.put("/api/v1/collectors/" + collector["collector_id"] + "/configuration", json=body)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("ids", [1, "record", [{}], [None]])
+def test_evidence_selection_requires_string_array(app_client, ids):
+    app, c = app_client
+    case = c.get("/api/v1/cases").json()[0]
+    response = c.post("/api/v1/cases/" + case["id"] + "/evidence", json={"evidence_ids":ids})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("template", [[], {}])
+def test_acquisition_template_requires_string(app_client, template):
+    app, c = app_client
+    assert c.post("/api/v1/acquisitions", json={"template":template}).status_code == 422
+
+
+def test_valid_mfa_setup_and_case_edit(app_client):
+    import pyotp
+    app, c = app_client
+    case = c.get("/api/v1/cases").json()[0]
+    result = c.patch("/api/v1/cases/" + case["id"], json={"version":case["version"], "title":"Updated case", "description":"Reviewed"})
+    assert result.status_code == 200
+    secret = c.post("/api/v1/auth/mfa", json={"password":"valid-test-password-123"}).json()["secret"]
+    result = c.post("/api/v1/auth/mfa", json={"password":"valid-test-password-123", "secret":secret, "otp":pyotp.TOTP(secret).now()})
+    assert result.status_code == 200
+    assert result.json()["enabled"] is True
+
+
+def test_frontend_and_readiness_are_served(app_client):
+    app, c = app_client
+    assert c.get("/health/ready").status_code == 200
+    response = c.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert 'id="root"' in response.text
+
+
+@pytest.mark.parametrize("content_type", [None, "application/json", "application/merge-patch+json"])
+def test_duplicate_json_guard_covers_all_json_media_types(app_client, content_type):
+    app, c = app_client
+    headers = {"content-type":content_type} if content_type else {}
+    response = c.post("/api/v1/cases", content='{"title":"First title","title":"Second title"}', headers=headers)
+    assert response.status_code == 400
+    assert len(c.get("/api/v1/cases").json()) == 1

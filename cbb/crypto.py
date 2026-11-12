@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import math
 import os
 import uuid
 from datetime import datetime, timezone
@@ -35,9 +36,15 @@ def strict_json(data):
     def depth(v, level=0):
         if level > 20: raise ValueError("JSON nesting exceeds 20 levels")
         if isinstance(v, dict):
-            for child in v.values(): depth(child, level+1)
+            for key, child in v.items():
+                key.encode("utf-8")
+                depth(child, level+1)
         elif isinstance(v, list):
             for child in v: depth(child, level+1)
+        elif isinstance(v, float) and not math.isfinite(v):
+            raise ValueError("Non-finite JSON value")
+        elif isinstance(v, str):
+            v.encode("utf-8")
     depth(value)
     return value
 

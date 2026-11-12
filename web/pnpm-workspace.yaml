@@ -1,2 +1,5 @@
+# pnpm 11 uses allowBuilds; the pinned pnpm 10.20 uses onlyBuiltDependencies.
+allowBuilds:
+  esbuild: true
 onlyBuiltDependencies:
   - esbuild
