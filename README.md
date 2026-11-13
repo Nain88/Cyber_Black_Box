@@ -8,7 +8,8 @@ The [11 November code audit](docs/AUDIT-2026-11-11.md) records the latest fixes,
 
 ## Start on this Windows computer
 
-The project is saved in `C:\Users\PC Tecnologies\Documents\ChatGPT\cloud box`.
+The project is saved in `C:\Users\PC Tecnologies\Documents\ChatGPT\cloud box.
+
 
 1. Double-click **Start-Cyber-Black-Box.cmd**. Keep its window open.
 2. Open **http://127.0.0.1:8765**.
