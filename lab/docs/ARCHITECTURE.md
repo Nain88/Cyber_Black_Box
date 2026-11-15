@@ -1,5 +1,7 @@
 # Technical architecture and trust boundaries
 
+This file describes the legacy optional Docker add-on. The integrated native application uses Kali as the sender and a Windows loopback decoy as the observation source. See [the current presentation architecture](../../docs/KALI-PRESENTATION-2026-11-14.md).
+
 ```text
 Windows host (Docker Desktop)                  Kali VM (isolated/private)
 ┌──────────────────────────┐                  ┌─────────────────────────┐

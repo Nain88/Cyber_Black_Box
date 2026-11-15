@@ -145,8 +145,13 @@ class Service:
                 manifest={"segment_id":seg["id"],"sha256":digest,"size":str(path.stat().st_size),"records":[{"id":r["id"],"sequence":str(r["sequence"]),"offset":str(r["raw_offset"]),"length":str(r["raw_length"]),"envelope":base64.b64encode(r["envelope"]).decode(),"record_hash":r["record_hash"],"previous_hash":r["previous_hash"]} for r in entries]}
                 atomic_write(path.with_suffix(".manifest.json"),canon(manifest))
 
-    def seal_pending(self,limit=100):
-        with self.db.read() as c: pending=rows(c,select(D.receipts.c.id).where(D.receipts.c.state=="STAGED").order_by(D.receipts.c.received_at).limit(limit))
+    def seal_pending(self,limit=100,receipt_ids=None):
+        query=select(D.receipts.c.id).where(D.receipts.c.state=="STAGED")
+        if receipt_ids is not None:
+            # Internal bounded priority intake, using the same transactional
+            # chain, raw archive and custody path as normal FIFO sealing.
+            query=query.where(D.receipts.c.id.in_(receipt_ids))
+        with self.db.read() as c: pending=rows(c,query.order_by(D.receipts.c.received_at).limit(limit))
         for r in pending:
             try:
                 with self.db.tx() as c:
@@ -395,7 +400,11 @@ class Service:
         files["report.docx"],files["report.pdf"]=reports(case,case_version,entries,note_list,verification,custody,ai)
         report=f"<!doctype html><meta charset='utf-8'><title>Cyber Black Box case report</title><style>body{{font:16px system-ui;max-width:900px;margin:4rem auto;line-height:1.6}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ccc;padding:8px}}</style><h1>{escape(case['title'])}</h1><p>Case {escape(case_id)} · Snapshot version {case_version}</p><p>{escape(case['description'] or '')}</p><h2>Analyst conclusion</h2><p>{escape(case['conclusion'] or 'No conclusion recorded.')}</p><h2>Evidence</h2><ul>"+"".join(f"<li>{escape(e['id'])} — sequence {e['sequence']}</li>" for e in entries)+f"</ul><h2>Integrity</h2><p>{escape(verification['status'])} · {escape(verification['assurance'])}</p><p>This report concerns selected captured observations. It does not establish completeness, source truth, attack attribution or legal admissibility.</p>"
         files["report.html"]=report.encode()
+        files["report.json"]=canon({"schema_version":"cbb.report/1.0","case":case,"case_version":case_version,"evidence":entries,"notes":note_list,"verification":verification,"custody":custody,"signature_scope":"All report formats are hashed in the Ed25519-signed companion manifest. Standalone PDF/DOCX files do not embed certificate signatures."})
         files["README.txt"]=b"Verify with: cbb verify-package case.zip --public-key <separately trusted base64 key>\nThe key inside a package must not be trusted solely because it arrived with that package. report.html is the readable report.\n"
+        for report_name in ("report.pdf", "report.docx", "report.json"):
+            payload={"schema_version":"cbb.report-signature/1.0","package_id":package_id,"case_id":case_id,"case_version":case_version,"file":report_name,"sha256":sha(files[report_name]),"size":len(files[report_name])}
+            files[report_name+".signature.json"]=canon(self.signed("CBB-REPORT-v1",payload))
         manifest={"package_id":package_id,"case_id":case_id,"case_version":case_version,"generated_at":now(),"evidence":entries,"files":[{"path":name,"size":str(data.stat().st_size if isinstance(data,Path) else len(data)),"sha256":file_sha(data) if isinstance(data,Path) else sha(data)} for name,data in files.items()]}
         files["manifest.json"]=canon(manifest);files["manifest.signature.json"]=canon(self.signed("CBB-EXPORT-v1",manifest))
         progress(90)

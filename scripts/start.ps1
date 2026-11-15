@@ -15,7 +15,14 @@ if ($Install) {
     if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 }
 if (-not (Test-Path -LiteralPath 'web\dist\index.html')) {
-    throw 'The interface has not been built. Run pnpm --dir web install --frozen-lockfile, then pnpm --dir web build.'
+    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+        throw 'This source checkout needs Node.js and pnpm to build the interface. Install them, or use the complete project ZIP which includes the built interface.'
+    }
+    Write-Host 'Building the interface for this source checkout...'
+    & pnpm --dir web install --frozen-lockfile
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
+    & pnpm --dir web build
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
 }
 $env:CBB_PUBLIC_URL = "http://127.0.0.1:$Port"
 # Double-clicking a second time should reopen the existing dashboard. Check

@@ -13,3 +13,6 @@ body,.main-shell{background-color:#eef4f3;background-image:radial-gradient(#8cab
 :focus-visible{outline:3px solid #278974}
 @media(max-width:650px){.signal-route{display:none}.edge-setup{padding:12px}.signal-banner{padding:18px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+
+.lab-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 0;color:var(--muted);font-size:13px}
+.lab-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:20px}.lab-cards p{min-height:64px;line-height:1.6}.lab-run{padding:18px 0;border-bottom:1px solid #293549}.lab-run:last-child{border-bottom:0}.lab-run-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.lab-run h3{margin:0 0 8px}.lab-run small{overflow-wrap:anywhere}.lab-run .actions{flex-wrap:wrap}.lab-run a{text-decoration:none}.lab-run p{line-height:1.6}@media(max-width:900px){.lab-cards{grid-template-columns:1fr}.lab-cards p{min-height:0}.lab-run-heading{align-items:flex-start;flex-direction:column}}

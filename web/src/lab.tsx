@@ -1,18 +1,43 @@
-import React from 'react';
-import {PageHead, Panel, Notice} from './ui';
+import React, {useState} from 'react';
+import {Play, Square, FileCheck2, Download, RefreshCw, ArrowRight} from 'lucide-react';
+import {api, type Row, utc} from './lib';
+import {PageHead, Panel, Notice, Badge, State, useApp, useData} from './ui';
 
 export function AttackLab() {
-  const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const {session,notify,go}=useApp();
+  const allowed=session.user.role==='admin';
+  const state=useData<Row>(allowed?'/lab':null,2000);
+  const [busy,setBusy]=useState(false);
+  const [checking,setChecking]=useState(false);
+  const [connection,setConnection]=useState<Row>();
+  const data=state.data;
+  async function check(){setChecking(true);setConnection(undefined);try{setConnection(await api<Row>('/lab/check','POST',{}))}catch(e){setConnection({error:(e as Error).message})}finally{setChecking(false)}}
+  async function start(scenario:string){setBusy(true);try{await api('/lab/runs','POST',{scenario});notify('Kali exercise started. Received observations will populate its case.');state.reload()}catch(e){notify((e as Error).message,'error')}finally{setBusy(false)}}
+  async function stop(id:string){setBusy(true);try{await api('/lab/runs/'+id+'/stop','POST',{});notify('Stop requested. Already received evidence will be preserved.');state.reload()}catch(e){notify((e as Error).message,'error')}finally{setBusy(false)}}
   return <>
-    <PageHead eyebrow="WORKSPACE / PRIVATE LAB" title="Attack simulation lab" description="Start a bounded exercise, stop further requests, then investigate the observations captured on Kali."/>
-    <Notice>Recommended first exercise: Failed sign-ins. Six invalid decoy logins produce a clear authentication trail. These are labelled lab observations; they do not prove a real intrusion.</Notice>
-    <Panel><div className="panel-content">
-      <h2>Simulation control room</h2>
-      <p>The separate local controller provides Start simulation, Stop simulation, target connectivity and run history. Stop cancels remaining requests; a request already in progress may take four seconds to finish.</p>
-      {local ? <a className="primary" href="http://127.0.0.1:8844" target="_blank" rel="noopener noreferrer">Open Start / Stop controls ↗</a> : <p>Open the controller on the Windows lab host at http://127.0.0.1:8844.</p>}
-      <h3>Evidence workflow</h3>
-      <ol><li>Start the instrumented Kali target and the Windows relay.</li><li>Open the controller and sign in with its separate operator password.</li><li>Start one scenario, or stop it before its remaining requests are sent.</li><li>Review lab.fixture records in Evidence explorer and the Kali Attack Lab case.</li></ol>
-      <p>Controller request completion is separate from confirmed ingestion. Verify received evidence in Cloud Box. Setup instructions are in LAB-SETUP.md.</p>
-    </div></Panel>
+    <PageHead eyebrow="FYP LAB / KALI → WINDOWS → EVIDENCE" title="Attack simulation & reports" description="Run a bounded exercise from Kali, preserve real target observations, and produce a verifiable case report." actions={<button className="secondary" onClick={state.reload}><RefreshCw size={16}/>Refresh</button>}/>
+    <Notice>Lab simulations only: fixed destinations, fixed payloads, up to six requests. Kali's existing journal collector continues independently. No personal accounts are tested.</Notice>
+    {!allowed?<Notice>Starting exercises requires an administrator. Authorized case members can review the resulting evidence and reports in their case workspace.</Notice>:<State state={state}>
+      <Panel title="Kali sender readiness"><div className="panel-content"><p>Start your Kali VM in VirtualBox or VMware. The local SSH configuration selects the sender. The Windows decoy collects the observations; Docker is not required.</p><button className="secondary" disabled={checking||busy||data?.busy} onClick={()=>void check()}><RefreshCw size={16}/>{checking?'Checking Kali…':'Check Kali connection'}</button>{connection?.error&&<p role="alert" className="form-error">{connection.error}</p>}{connection?.reachable&&<p role="status">SSH connected · {connection.system} · Python {connection.python} · Checked {utc(connection.checked_at)}. {connection.note}</p>}</div></Panel>
+      <div className="lab-flow"><span>01 · Kali sender</span><ArrowRight size={18}/><span>02 · Windows decoy</span><ArrowRight size={18}/><span>03 · Sealed evidence</span><ArrowRight size={18}/><span>04 · Signed package</span></div>
+      {data&&!data.configured&&<Notice>Kali connection is not configured. Start the existing VM and configure the local SSH key and pinned host entry described in docs/KALI-LOG-CONNECTION.md. No requests will be sent until configuration is available.</Notice>}
+      <div className="lab-cards">{Object.entries(data?.scenarios||{}).map(([id,value])=>{const scenario=value as Row;return <Panel key={id}><div className="panel-content"><Badge tone="blue">{scenario.count} REQUESTS MAXIMUM</Badge><h2>{scenario.label}</h2><p>{scenario.description}</p><button className="primary" disabled={busy||data?.busy||!data?.configured} onClick={()=>void start(id)}><Play size={16}/>Start simulation</button></div></Panel>})}</div>
+      <Panel title="Run history & automatic reports"><div className="panel-content">
+        {!data?.runs?.length&&<p>No exercises yet. Choose a scenario to create a dedicated case and start collecting observations.</p>}
+        {(data?.runs||[]).map((run:Row)=><article className="lab-run" key={run.id}>
+          <div className="lab-run-heading"><div><h3>{data?.scenarios[run.scenario]?.label||run.scenario}</h3><small>{utc(run.started_at)} · {run.id}</small></div><Badge>{run.state}</Badge></div>
+          <p><strong>{run.observed_count}</strong> target-side observations · Report: <Badge>{run.report_state}</Badge></p>
+          {run.error&&<p role="alert" className="form-error">{run.error}</p>}{run.report_error&&<p role="alert" className="form-error">Report: {run.report_error}</p>}
+          <div className="actions">
+            {['RUNNING','STOPPING'].includes(run.state)&&<button className="secondary" disabled={busy||run.state==='STOPPING'} onClick={()=>void stop(run.id)}><Square size={16}/>Stop simulation</button>}
+            <button className="secondary" onClick={()=>go('cases?id='+run.case_id)}><FileCheck2 size={16}/>Open evidence case</button>
+            {run.job_id&&<button className="secondary" onClick={()=>go('jobs')}>Report job</button>}
+            {run.export_id&&<><a className="primary" href={'/api/v1/exports/'+run.export_id+'/download'}><Download size={16}/>Signed evidence ZIP</a>{['pdf','docx','json'].map(format=><React.Fragment key={format}><a className="secondary" href={'/api/v1/exports/'+run.export_id+'/report/'+format}>{format==='docx'?'Word':format.toUpperCase()}</a><a className="text-button" href={'/api/v1/exports/'+run.export_id+'/report/'+format+'?signature=true'}>{format.toUpperCase()} signature</a></React.Fragment>)}</>}
+          </div>
+        </article>)}
+      </div></Panel>
+    </State>}
+    <Notice>Signature verification: download the signed ZIP and verify it against your independently retained public key. Its Ed25519-signed manifest covers JSON, Word, PDF and raw evidence hashes. Each format also has a downloadable detached Ed25519 signature. Use verify-report to check it. These are not embedded Adobe or Microsoft certificate signatures. Editing a report invalidates its original signature.</Notice>
+    <Panel><div className="panel-content"><h2>Presentation checklist</h2><ol><li>Show Kali's collector heartbeat and explain the separate simulation sender.</li><li>Start a scenario and watch received observations appear. Stop early to demonstrate cancellation.</li><li>Open its case and inspect original bytes, timestamps and provenance.</li><li>Wait for the report job, download PDF or Word, and retain the signed ZIP.</li><li>Demonstrate offline verification and explain that lab activity does not prove real intrusion or complete capture.</li></ol></div></Panel>
   </>;
 }

@@ -1,16 +1,19 @@
 # Cyber Black Box
 
+**Current presentation setup: Kali simulation sender → Windows decoy → preserved evidence → signed reports. Docker is not required.** Start with the [14 November Kali presentation guide](docs/KALI-PRESENTATION-2026-11-14.md). The Lab page includes a connection check, Start/Stop controls and automatic report downloads. The running VM verified on this laptop is Kali in VirtualBox; a private VMware Kali SSH endpoint can also be configured.
+
 Editable source for a dual-deployment FYP evidence preservation and investigation platform. Windows Virtual Mode and Linux Cloud Mode share the API, data model and web interface. No hardware mode is included.
 
 
 The November Windows release includes a native Suricata/Npcap sensor, Windows Firewall evidence, a polling Live monitor, and local Ollama case analysis. Use [the Windows live demo guide](docs/WINDOWS-LIVE-DEMO.md) and [the acceptance audit](docs/LIVE-ACCEPTANCE.md) for the tested laptop setup and coverage limits.
 
+The [12 November release acceptance](docs/RELEASE-ACCEPTANCE-2026-11-12.md) records the current automated checks, real HTTP smoke test, restore test, and remaining deployment limits.
+
 The [11 November code audit](docs/AUDIT-2026-11-11.md) records the latest fixes, automated checks, dependency scan, and Docker setup status.
 
 ## Start on this Windows computer
 
-The project is saved in `C:\Users\PC Tecnologies\Documents\ChatGPT\cloud box.
-
+The project is saved in `D:\CloudBox`.
 
 1. Double-click **Start-Cyber-Black-Box.cmd**. Keep its window open.
 2. Open **http://127.0.0.1:8765**.
@@ -25,6 +28,12 @@ pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+## Kali log collection
+
+The integrated **Lab** page provides administrator Start/Stop buttons for three bounded Kali simulations, automatically creates an evidence case, and generates JSON, Word and PDF reports. Each report has a detached Ed25519 signature and is included in a signed evidence ZIP. Follow the [FYP presentation walkthrough](docs/FYP-PRESENTATION.md) for setup, verification and coverage limits.
+
+With the existing Kali VM running, start Cloud Box and then `Start-Kali-Log-Bridge.cmd`. Keep both terminals open. The bridge reconnects interrupted SSH connections; existing queued events remain with the Kali collector. See [Kali connection setup and verified behavior](docs/KALI-LOG-CONNECTION.md).
 
 ## Synthetic demonstration
 

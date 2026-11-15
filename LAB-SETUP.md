@@ -30,7 +30,9 @@ Still open: crash/orphan reconciliation, reducing database lock scope, streaming
 
 ---
 
-# Cloud Box + Windows Docker + Kali attack-simulation lab
+# Legacy Docker add-on setup
+
+> For the current Docker-free presentation workflow, use [Kali sender setup](docs/KALI-PRESENTATION-2026-11-14.md). The instructions below describe the older optional Docker controller with Kali as its target. They are not the setup for the integrated Lab page.
 
 **Drop-in add-on for `Nain88/cloud-box` at commit `96d78bc` (November 5, 2026).**
 It leaves the existing Cloud Box backend, case dashboard, database and collector code unchanged. Copy **all files and directories** from this ZIP into the *root* of the `cloud-box` repository. Existing files remain untouched, including the original `README.md` (this add-on uses `LAB-SETUP.md`).

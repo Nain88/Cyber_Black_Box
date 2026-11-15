@@ -40,6 +40,9 @@ cloud_objects = table("cloud_objects", idcol(), txt("provider"), txt("source_kin
 ai_runs = table("ai_runs", idcol(), txt("case_id"), txt("actor_id"), txt("engine"), txt("question"), txt("input_sha256"), txt("output_sha256"), txt("document"), txt("review"), txt("created_at"))
 
 
+lab_runs = table("lab_runs", idcol(), txt("actor_id"), txt("case_id"), txt("scenario"), txt("state"), txt("started_at"), txt("ended_at"), txt("receipts"), txt("error"), txt("job_id"))
+
+
 class Database:
     def __init__(self, url):
         self.sqlite = url.startswith("sqlite")

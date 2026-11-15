@@ -71,12 +71,25 @@ def main(argv=None):
     s.add_parser("demo",help="Initialize synthetic demo in an EMPTY data directory")
     v=s.add_parser("verify",help="Verify local evidence and optional external checkpoint");v.add_argument("--checkpoint",type=Path)
     v=s.add_parser("verify-package",help="Offline ZIP verification with separately trusted signing key");v.add_argument("package",type=Path);v.add_argument("--public-key",required=True)
+    vr=s.add_parser("verify-report",help="Verify a standalone PDF, DOCX or JSON against its detached signature")
+    vr.add_argument("report",type=Path);vr.add_argument("signature",type=Path);vr.add_argument("--public-key",required=True)
     s.add_parser("checkpoint",help="Create a signed checkpoint while server is stopped")
     b=s.add_parser("backup",help="Offline consistent SQLite and archive backup");b.add_argument("destination",type=Path)
     r=s.add_parser("restore",help="Restore a backup into a new empty directory");r.add_argument("backup",type=Path);r.add_argument("--checkpoint",type=Path)
     s.add_parser("schema",help="Print ingest JSON Schema")
     a=p.parse_args(argv)
     try:
+        if a.command=="verify-report":
+            from .crypto import verify_signature, strict_json, file_sha
+            from cryptography.exceptions import InvalidSignature
+            try:
+                document=verify_signature(strict_json(a.signature.read_bytes()),"CBB-REPORT-v1",a.public_key)
+            except (InvalidSignature, ValueError, KeyError, TypeError, AttributeError):
+                print(json.dumps({'status':'INVALID','reason':'Report signature or trusted key is invalid'}))
+                return 2
+            valid=document.get('schema_version')=='cbb.report-signature/1.0' and document.get('sha256')==file_sha(a.report) and document.get('size')==a.report.stat().st_size
+            print(json.dumps({'status':'VALID' if valid else 'INVALID','file':str(a.report),'case_id':document.get('case_id'),'signature':'Detached Ed25519; trust depends on the supplied public key'},indent=2))
+            return 0 if valid else 2
         if a.command=="verify-package":
             from .verify import verify_package
             result=verify_package(a.package,a.public_key);print(json.dumps(result,indent=2));return 0 if result["status"]=="VALID" else 2

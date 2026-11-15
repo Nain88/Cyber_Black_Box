@@ -5,6 +5,7 @@ import zipfile
 import json
 import sys
 import os
+import subprocess
 root=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(root))
 from cbb.schema import WireEvent
@@ -17,19 +18,29 @@ app=create_app(Settings(data=root/'work/schema-data',workers=False))
 app.state.service.db.engine.dispose()
 out=root/'release';out.mkdir(exist_ok=True)
 target=out/'Cyber-Black-Box-Complete-Project.zip'
-allowed={'cbb','web','tests','deploy','scripts','rules','docs','.github','output','source','test-kit'}
-rootfiles={'README.md','pyproject.toml','requirements.lock','Dockerfile','.dockerignore','.gitignore','compose.virtual.yml','compose.cloud.yml','Start-Cyber-Black-Box.cmd'}
-excluded={'node_modules','__pycache__','.pytest_cache','live-lab'}
+# Only version-controlled source belongs in a release. This excludes local lab
+# credentials, evidence, virtual environments and the pnpm directory junction.
+tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode('utf-8').split('\0')
+selected = {root / name for name in tracked if name and not name.startswith('.pnpm-store/')}
+# Generated API schemas and the compiled interface are intentional additions.
+selected.update({docs/'ingest.schema.json', docs/'openapi.json', docs/'RELEASE-ACCEPTANCE-2026-11-12.md', root/'scripts/audit_smoke.py', root/'scripts/start-kali-bridge.ps1', root/'Start-Kali-Log-Bridge.cmd', docs/'KALI-LOG-CONNECTION.md'})
+selected.update(path for path in (root/'web/dist').rglob('*') if path.is_file())
+selected.update({root/'cbb/lab.py', root/'tests/test_lab_workflow.py', docs/'FYP-PRESENTATION.md'})
+selected.update({root/'cbb/kali.py', root/'tests/test_kali_connection.py', docs/'KALI-PRESENTATION-2026-11-14.md'})
+if not (root/'web/dist/index.html').is_file():
+    raise RuntimeError('Build the interface before packaging: pnpm --dir web build')
 count=0
 with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as z:
-    selected=[root/name for name in sorted(rootfiles) if (root/name).is_file()]
-    for top in sorted(allowed):
-        for directory,dirs,files in os.walk(root/top,followlinks=False):
-            dirs[:]=sorted(d for d in dirs if d not in excluded and not (Path(directory)/d).is_symlink())
-            selected.extend(Path(directory)/name for name in sorted(files))
-    for path in selected:
-        if path.is_symlink() or path.suffix in ('.pyc','.tsbuildinfo'):continue
+    for path in sorted(selected):
+        if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root):
+            continue
         rel=path.relative_to(root)
+        if any(part in {'node_modules', '__pycache__', '.pytest_cache', '.git', '.lab-state'} for part in rel.parts):
+            continue
+        if path.name == '.env' or (path.name.startswith('.env.') and path.name != '.env.example'):
+            continue
+        if path.suffix in {'.pyc', '.tsbuildinfo'}:
+            continue
         z.write(path,'Cyber-Black-Box/'+rel.as_posix());count+=1
 digest=hashlib.sha256(target.read_bytes()).hexdigest()
 (out/'SHA256SUMS.txt').write_text(digest+'  '+target.name+'\n')
