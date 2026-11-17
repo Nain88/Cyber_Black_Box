@@ -11,7 +11,7 @@ The [12 November release acceptance](docs/RELEASE-ACCEPTANCE-2026-11-12.md) reco
 
 The [11 November code audit](docs/AUDIT-2026-11-11.md) records the latest fixes, automated checks, dependency scan, and Docker setup status.
 
-## Start on this Windows computer
+Start on Your Computer
 
 The project is saved in `D:\CloudBox`.
 
