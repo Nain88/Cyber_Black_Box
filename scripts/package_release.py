@@ -25,6 +25,7 @@ selected = {root / name for name in tracked if name and not name.startswith('.pn
 # Generated API schemas and the compiled interface are intentional additions.
 selected.update({docs/'ingest.schema.json', docs/'openapi.json', docs/'RELEASE-ACCEPTANCE-2026-11-12.md', root/'scripts/audit_smoke.py', root/'scripts/start-kali-bridge.ps1', root/'Start-Kali-Log-Bridge.cmd', docs/'KALI-LOG-CONNECTION.md'})
 selected.update(path for path in (root/'web/dist').rglob('*') if path.is_file())
+selected.add(root/'web/src/motion.tsx')
 selected.update({root/'cbb/lab.py', root/'tests/test_lab_workflow.py', docs/'FYP-PRESENTATION.md'})
 selected.update({root/'cbb/kali.py', root/'tests/test_kali_connection.py', docs/'KALI-PRESENTATION-2026-11-14.md'})
 if not (root/'web/dist/index.html').is_file():

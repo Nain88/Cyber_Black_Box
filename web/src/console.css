@@ -119,3 +119,47 @@ td { padding-block: 18px; }
   .search-filters { padding: 18px; }
   .search-filters .filter-row>* { min-width: 0; max-width: 100%; }
 }
+/* Bounded signal animation inspired by the supplied falling-line reference. */
+html { scroll-padding-top: 100px; }
+.topbar { position: sticky; top: 0; z-index: 10; box-shadow: 0 4px 18px #142c4e08; }
+.sidebar { z-index: 15; }
+.page-heading { position: relative; isolation: isolate; padding: 26px; border: 1px solid #dbe5f5; border-radius: 14px; background: linear-gradient(115deg,#fff 25%,#eaf1ff); overflow: hidden; }
+.page-heading>div:not(.signal-lines) { position: relative; z-index: 1; }
+.page-heading .eyebrow { color: #365b96; }
+.signal-lines { pointer-events: none; position: absolute; inset: 0 3% 0 48%; display: flex; justify-content: space-between; overflow: hidden; z-index: 0; opacity: .38; }
+.signal-lines>span { position: relative; width: 1px; height: 100%; background: #6695d914; }
+.signal-lines>span::after { content: ''; position: absolute; top: -85px; left: 0; width: 1px; height: 80px; background: linear-gradient(transparent,#4c8cef,transparent); animation: cbb-signal-drop 7s ease-in-out 2; }
+.signal-lines>span:nth-child(2)::after { animation-delay: .7s; background: linear-gradient(transparent,#24a5a0,transparent); }
+.signal-lines>span:nth-child(3)::after { animation-delay: 1.4s; }
+.signal-lines>span:nth-child(4)::after { animation-delay: 2.1s; background: linear-gradient(transparent,#8b79db,transparent); }
+.signal-lines>span:nth-child(5)::after { animation-delay: 2.8s; }
+.signal-lines>span:nth-child(6)::after { animation-delay: 3.5s; background: linear-gradient(transparent,#24a5a0,transparent); }
+@keyframes cbb-signal-drop { from { transform: translateY(0); } to { transform: translateY(900px); } }
+.auth-story { position: relative; isolation: isolate; overflow: hidden; }
+.auth-story>.signal-lines { inset: 0 8%; opacity: .45; }
+.auth-story>div:not(.signal-lines) { position: relative; z-index: 1; }
+.motion-control { font-size: 12px; color: #425b7d; }
+.motion-control[aria-pressed=false] { background: #edf2fa; }
+@media(prefers-reduced-motion:no-preference) {
+ .page-heading { animation: cbb-reveal 220ms ease-out both; }
+ .modal[open], .evidence-dialog[open] { animation: cbb-reveal 160ms ease-out both; }
+ .sidebar nav a, .primary, .secondary, .setup-steps article { transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
+ .setup-steps article:hover { border-color: #9cb8e6; box-shadow: 0 5px 18px #2547750b; }
+}
+@keyframes cbb-reveal { from { opacity: .5; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+html[data-page-hidden=true] .signal-lines>span::after { animation-play-state: paused; }
+html[data-motion=off] .signal-lines>span::after,
+html[data-motion=off] .page-heading,
+html[data-motion=off] .modal,
+html[data-motion=off] .evidence-dialog { animation: none; }
+@media(prefers-reduced-motion:reduce) {
+ .signal-lines>span::after { animation: none; }
+}
+@media(max-width:760px) {
+ .page-heading { padding: 20px; }
+ .signal-lines { inset-inline-start: 65%; }
+ .signal-lines>span:nth-child(n+4) { display: none; }
+ .motion-control span { display: none; }
+ .sidebar { z-index: 30; }
+ html { scroll-padding-top: 85px; }
+}
