@@ -68,3 +68,17 @@ a.secondary { color: #304862; border-color: var(--line); }
 input:not([type=checkbox]):not([type=radio]), select, textarea { min-height: 42px; border-radius: 8px; }
 input::placeholder, textarea::placeholder { color: #718096; }
 input[type=checkbox], input[type=radio] { accent-color: var(--blue); width: 16px; height: 16px; }
+table { font-size: 13px; }
+th { font-size: 11px; color: #53637a; background: #f8fafd; letter-spacing: .06em; }
+td { padding-block: 18px; }
+.table-footer, .results-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; padding: 16px 20px; }
+.results-toolbar { padding: 0 0 16px; }
+.table-footer { border-top: 1px solid var(--line); }
+.table-footer label { display: inline-flex; align-items: center; gap: 8px; }
+.table-title { gap: 7px; }
+.search-filters { display: grid; gap: 16px; padding: 24px; }
+.search-filters .search-box { width: 100%; }
+.search-filters .filter-row { padding: 0; }
+.filter-row .inline-label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+.case-summary-strip { background: #f8fafd; border-color: var(--line); }
+.case-card-meta, .case-card-footer { font-size: 12px; }
