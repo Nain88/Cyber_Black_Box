@@ -106,3 +106,16 @@ td { padding-block: 18px; }
 .signal-route svg { background: #234777; border-color: #7199cc; color: #dceaff; }
 .signal-route i { background: #89ade0; animation: none; }
 .main-footer { color: #596c85; font-size: 11px; }
+@media(max-width:1200px) { .setup-steps { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:760px) {
+  #main-content { padding: 24px 16px; }
+  .setup-steps { grid-template-columns: 1fr; }
+  .panel-content, .setup-steps article { padding: 18px; }
+  .page-heading { gap: 16px; }
+  .page-heading p { font-size: 13px; }
+  .results-toolbar>.actions { width: 100%; }
+  .results-toolbar select { max-width: 100%; }
+  .table-footer { padding: 14px; }
+  .search-filters { padding: 18px; }
+  .search-filters .filter-row>* { min-width: 0; max-width: 100%; }
+}
