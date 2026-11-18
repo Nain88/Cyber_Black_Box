@@ -783,3 +783,41 @@ button.stat-card:hover { border-color: var(--border-strong); background: var(--s
   .integrity-banner { flex-wrap: wrap; }
   td, th { padding: 9px 10px; }
 }
+
+/* ---------------------------------------------------------------------------
+   Decorative signal animation + motion control (ported from main, dff4d6b).
+   Bounded (2 iterations), paused when the tab is hidden, disabled by the
+   Motion toggle and by prefers-reduced-motion. Uses theme tokens so it
+   works in both dark and light themes.
+--------------------------------------------------------------------------- */
+.page-heading { position: relative; isolation: isolate; padding: var(--sp-5); border: 1px solid var(--border); border-radius: var(--radius-lg); background: linear-gradient(115deg, var(--surface) 30%, var(--accent-soft)); overflow: hidden; }
+.page-heading > :not(.signal-lines) { position: relative; z-index: 1; }
+.signal-lines { pointer-events: none; position: absolute; inset: 0 3% 0 48%; display: flex; justify-content: space-between; overflow: hidden; z-index: 0; opacity: .5; }
+.signal-lines > span { position: relative; width: 1px; height: 100%; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.signal-lines > span::after { content: ""; position: absolute; top: -85px; left: 0; width: 1px; height: 80px; background: linear-gradient(transparent, var(--accent), transparent); animation: cbb-signal-drop 7s ease-in-out 2; }
+.signal-lines > span:nth-child(2)::after { animation-delay: .7s; background: linear-gradient(transparent, var(--ok), transparent); }
+.signal-lines > span:nth-child(3)::after { animation-delay: 1.4s; }
+.signal-lines > span:nth-child(4)::after { animation-delay: 2.1s; background: linear-gradient(transparent, var(--info), transparent); }
+.signal-lines > span:nth-child(5)::after { animation-delay: 2.8s; }
+.signal-lines > span:nth-child(6)::after { animation-delay: 3.5s; background: linear-gradient(transparent, var(--ok), transparent); }
+@keyframes cbb-signal-drop { from { transform: translateY(0); } to { transform: translateY(900px); } }
+.auth-story > .signal-lines { position: absolute; inset: 0 8%; opacity: .45; z-index: 0; }
+.motion-control { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-muted); }
+.motion-control[aria-pressed="false"] { background: var(--surface-2); }
+@media (prefers-reduced-motion: no-preference) {
+  .page-heading { animation: cbb-reveal 220ms ease-out both; }
+  .modal[open], .evidence-dialog[open] { animation: cbb-reveal 160ms ease-out both; }
+}
+@keyframes cbb-reveal { from { opacity: .5; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+html[data-page-hidden="true"] .signal-lines > span::after { animation-play-state: paused; }
+html[data-motion="off"] .signal-lines > span::after,
+html[data-motion="off"] .page-heading,
+html[data-motion="off"] .modal,
+html[data-motion="off"] .evidence-dialog { animation: none; }
+@media (prefers-reduced-motion: reduce) { .signal-lines > span::after { animation: none; } }
+@media (max-width: 760px) {
+  .page-heading { padding: var(--sp-4); }
+  .signal-lines { inset-inline-start: 65%; }
+  .signal-lines > span:nth-child(n+4) { display: none; }
+  .motion-control span { display: none; }
+}
