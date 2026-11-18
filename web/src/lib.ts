@@ -29,3 +29,11 @@ export function downloadJson(filename: string, data: unknown) { const url = URL.
 export function caseLabel(c: Row): string {
   return `${c.title} · ${utc(c.created_at)} · ID ${c.id} · v${c.version}`;
 }
+
+export function statusTone(value: string): string {
+  const status = value.trim().toUpperCase();
+  if (['FAILED','INVALID','REVOKED','QUARANTINED','REJECTED'].includes(status)) return 'red';
+  if (['ONLINE','ACTIVE','COMPLETE','VALID','SEALED','RESOLVED','APPROVED'].includes(status)) return 'green';
+  if (['PENDING','STAGED','QUEUED','UNANCHORED','REVIEW','LEASED','RUNNING','STOPPING','FINALIZING','PARTIAL','INTERRUPTED'].includes(status)) return 'amber';
+  return 'slate';
+}
