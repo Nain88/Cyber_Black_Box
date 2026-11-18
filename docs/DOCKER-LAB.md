@@ -31,3 +31,9 @@ Docker Hub login is not required for the public sender image used here. The send
 8. Stop button demonstrate karne ke liye naya run start karein aur pehli observation ke baad stop karein. Collected evidence rehna chahiye; zero observations par evidence report expect na karein.
 
 If a run reports pending sealing or a failed report, inspect **Background jobs** and the guide's pipeline health. Preserve the case and error details before retrying. A successful local integrity check does not by itself resolve an earlier sender failure or establish external anchoring.
+
+## Interface audit — 18 November 2026
+
+The application interface now uses English throughout, including the Getting started guide and simulation progress messages. Shared layouts use a consistent navy-and-blue palette, clearer typography, responsive cards, and more readable tables and forms. The Docker setup notice no longer directs users to obsolete SSH instructions. Status badges match complete state names, so inactive or incomplete states cannot be displayed as successful states.
+
+Browser checks covered all 19 navigation pages at 1440 px and 390 px widths, with no page-level horizontal overflow, mixed-language labels, or JavaScript exceptions detected. Workflow checks covered evidence dialogs and Escape dismissal, distinguishing cases with identical titles, report generation, and PDF download. Six frontend tests and the production build passed. These checks use isolated fixtures; they do not certify every external integration, browser, or deployment configuration.
