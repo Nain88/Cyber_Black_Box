@@ -30,7 +30,7 @@ with exclusive(root/'data'):
     with service.db.tx() as c:
         c.execute(update(D.collectors).where(D.collectors.c.id==credentials['collector_id']).values(configuration=dumps({'paths':[],'channels':['System','Application'],'poll_seconds':5,'max_file_bytes':20971520,'intake_case_id':cid}),config_version=2))
         service.audit(c,'local-operator','COLLECTOR_CONFIGURED',credentials['collector_id'],details={'intake_case_id':cid,'channels':['System','Application']})
-    config={**credentials,'server':'http://127.0.0.1:8765','data':str(target.parent),'enable_events':True,'enable_acquisitions':False,'allowed_paths':[],'allowed_channels':['System','Application','Security'],'firewall_files':[str(Path(os.environ['SystemRoot'])/'System32/LogFiles/Firewall/pfirewall.log')],'eve_files':[str(root/'sensor-data/eve.json')],'zeek_files':[]}
+    config={**credentials,'server':'http://127.0.0.1:8765','data':str(target.parent),'enable_events':True,'enable_acquisitions':False,'allowed_paths':[],'allowed_channels':['System','Application','Security'],'firewall_files':[str(p) for p in [Path(os.environ['SystemRoot'])/'System32/LogFiles/Firewall/pfirewall.log'] if p.is_file()],'eve_files':[str(p) for p in [root/'sensor-data/eve.json'] if p.is_file()],'zeek_files':[]}
     atomic_write(target,json.dumps(config,indent=2).encode())
     service.db.engine.dispose()
     print(json.dumps({'state':'CONFIGURED','case_id':cid,'collector_id':credentials['collector_id'],'config':str(target),'secrets_printed':False}))

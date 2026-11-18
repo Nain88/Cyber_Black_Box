@@ -15,6 +15,14 @@ from cbb.lab import SCENARIOS, PATHS, runner_source
 from cbb.verify import verify_package
 
 
+def test_docker_runner_preserves_token_and_fixed_destination():
+    source=runner_source('port-probe','secret18888TOKEN18889',host='host.docker.internal',http_port=40001,tcp_port=40002)
+    assert "token='secret18888TOKEN18889'" in source
+    assert 'host.docker.internal:40001' in source
+    assert "('host.docker.internal',40002)" in source
+    compile(source,'docker-runner','exec')
+
+
 def finish(app, client):
     app.state.lab.thread.join(12)
     assert not app.state.lab.thread.is_alive()
@@ -122,3 +130,42 @@ def test_lab_seals_own_receipts_without_draining_backlog(app_client,monkeypatch)
     with service.db.read() as conn:
         assert row(conn,select(D.receipts).where(D.receipts.c.id==backlog_id))['state']=='STAGED'
         assert len(conn.execute(select(D.case_evidence).where(D.case_evidence.c.case_id==run['case_id'])).all())==6
+
+
+def test_recover_finalization_without_replaying_sender(app_client,monkeypatch):
+    app,c=app_client;lab=app.state.lab;service=app.state.service
+    monkeypatch.setattr(lab,'available',lambda:True)
+    calls=[]
+    def sender(*args):calls.append(1);local_sender(*args)
+    lab.executor=sender
+    original=service.seal_pending
+    def unavailable(*args,**kwargs):raise RuntimeError('Temporary storage unavailable')
+    monkeypatch.setattr(service,'seal_pending',unavailable)
+    rid=c.post('/api/v1/lab/runs',json={'scenario':'web-probes'}).json()['id']
+    run=finish(app,c)
+    assert run['state']=='FAILED' and run['sealed_count']==0 and run['recoverable']
+    monkeypatch.setattr(service,'seal_pending',original)
+    c.post('/api/v1/cases/'+run['case_id']+'/notes',json={'body':'Recovery review note'}).raise_for_status()
+    r=c.post('/api/v1/lab/runs/'+rid+'/recover',json={});assert r.status_code==200,r.text
+    assert not r.json()['sender_replayed']
+    second=c.post('/api/v1/lab/runs/'+rid+'/recover',json={})
+    assert second.json()['job_id']==r.json()['job_id']
+    recovered=c.get('/api/v1/lab').json()['runs'][0]
+    assert recovered['state']=='PARTIAL' and recovered['sealed_count']==5 and not recovered['recoverable']
+    assert len(calls)==1
+    with service.db.read() as conn:
+        job=row(conn,select(D.jobs).where(D.jobs.c.id==r.json()['job_id']))
+    assert 'Recovery review note' in job['payload']
+    assert c.post('/api/v1/lab/runs/'+rid+'/recover',json={},headers={'x-csrf-token':'bad'}).status_code==403
+    c.post('/api/v1/users',json={'username':'other-admin','password':'another-admin-password-123','role':'admin'}).raise_for_status()
+    login=c.post('/api/v1/auth/session',json={'username':'other-admin','password':'another-admin-password-123'}).json();c.headers['x-csrf-token']=login['csrf']
+    assert c.post('/api/v1/lab/runs/'+rid+'/recover',json={}).status_code==404
+
+
+def test_pipeline_health_requires_admin(app_client):
+    app,c=app_client
+    result=c.get('/api/v1/health/pipeline');assert result.status_code==200
+    assert 'oldest_pending_at' in result.json() and 'disk_free' in result.json()
+    c.post('/api/v1/users',json={'username':'health-reviewer','password':'health-reviewer-password','role':'reviewer'}).raise_for_status()
+    login=c.post('/api/v1/auth/session',json={'username':'health-reviewer','password':'health-reviewer-password'}).json();c.headers['x-csrf-token']=login['csrf']
+    assert c.get('/api/v1/health/pipeline').status_code==403

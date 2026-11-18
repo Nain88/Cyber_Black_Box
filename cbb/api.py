@@ -697,6 +697,19 @@ def create_app(settings=None):
     def lab_stop(rid:str,u=Depends(admin)):
         return lab.stop_run(u,rid)
 
+    @app.post("/api/v1/lab/runs/{rid}/recover")
+    def lab_recover(rid:str,u=Depends(admin)):
+        return lab.recover_run(u,rid)
+
+    @app.get("/api/v1/health/pipeline")
+    def pipeline_health(u=Depends(admin)):
+        with service.db.read() as c:
+            receipt_counts=rows(c,select(D.receipts.c.state,func.count().label('count')).group_by(D.receipts.c.state))
+            oldest=c.execute(select(func.min(D.receipts.c.received_at)).where(D.receipts.c.state=='STAGED')).scalar()
+            latest=c.execute(select(func.max(D.receipts.c.received_at))).scalar()
+            jobs=rows(c,select(D.jobs.c.kind,D.jobs.c.state,func.count().label('count')).group_by(D.jobs.c.kind,D.jobs.c.state))
+        return {'receipts':receipt_counts,'oldest_pending_at':oldest,'last_received_at':latest,'jobs':jobs,'workers_enabled':service.settings.workers,'worker':worker_errors,'disk_free':shutil.disk_usage(service.root).free,'witness_configured':bool(service.settings.witness_url),'witness_independent':service.settings.witness_independent}
+
     @app.post("/api/v1/exports",status_code=202)
     def export(body:dict,request:Request,u=Depends(investigator)):
         cid=str(body.get("case_id",""))

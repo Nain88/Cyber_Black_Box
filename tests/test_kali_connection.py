@@ -39,7 +39,7 @@ def test_connection_check_validates_response(tmp_path,monkeypatch):
 def test_readiness_endpoint_auth_and_error(app_client,monkeypatch):
     app,c=app_client
     monkeypatch.setattr(app.state.lab,'available',lambda:True)
-    monkeypatch.setattr('cbb.lab.check_connection',lambda root:{'reachable':True})
+    monkeypatch.setattr('cbb.lab.subprocess.run',lambda *a,**kw:SimpleNamespace(returncode=0,stdout='linux'))
     assert c.post('/api/v1/lab/check',json={}).json()['reachable']
     assert c.post('/api/v1/lab/check',json={},headers={'x-csrf-token':'wrong'}).status_code==403
     monkeypatch.setattr(app.state.lab,'available',lambda:False)

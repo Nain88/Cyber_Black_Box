@@ -25,3 +25,7 @@ export function bytes(value: unknown): string { const n = Number(value); if (!Nu
 export function utc(value: unknown): string { if (!value) return 'Unknown'; const d = new Date(typeof value === 'number' ? value * 1000 : String(value)); return Number.isNaN(d.getTime()) ? 'Unknown' : d.toISOString().replace('T',' ').replace('.000','').replace('Z',' UTC'); }
 export function routeQuery(path: string, values: Row) { const q = new URLSearchParams(); for (const [k,v] of Object.entries(values)) if (v !== '' && v != null) q.set(k,String(v)); return path + (q.size ? '?' + q.toString() : ''); }
 export function downloadJson(filename: string, data: unknown) { const url = URL.createObjectURL(new Blob([pretty(data)],{type:'application/json'})); const a = document.createElement('a'); a.href=url; a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); }
+
+export function caseLabel(c: Row): string {
+  return `${c.title} · ${utc(c.created_at)} · ID ${c.id} · v${c.version}`;
+}

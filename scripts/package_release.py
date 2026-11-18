@@ -29,6 +29,7 @@ selected.update({root/'cbb/lab.py', root/'tests/test_lab_workflow.py', docs/'FYP
 selected.update({root/'cbb/kali.py', root/'tests/test_kali_connection.py', docs/'KALI-PRESENTATION-2026-11-14.md'})
 if not (root/'web/dist/index.html').is_file():
     raise RuntimeError('Build the interface before packaging: pnpm --dir web build')
+selected.update({root/'Setup-Docker-Lab.cmd', root/'Setup-Windows-Collector.cmd', root/'web/src/guide.tsx', docs/'DOCKER-LAB.md'})
 count=0
 with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as z:
     for path in sorted(selected):
