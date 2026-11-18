@@ -128,12 +128,14 @@ def create_app(settings=None):
     async def domain_error(request,exc):
         return JSONResponse({"type":"about:blank","title":exc.message,"detail":exc.message,"status":exc.status,"code":exc.code,"request_id":getattr(request.state,"request_id",None),"retryable":exc.status in (429,503)},status_code=exc.status,media_type="application/problem+json")
 
+    allowed_origins=service.settings.origins()
+
     @app.middleware("http")
     async def guard(request,call_next):
         request.state.request_id=uid()
         if request.method not in ("GET","HEAD","OPTIONS"):
             origin=request.headers.get("origin")
-            if origin and origin.rstrip("/")!=service.settings.public_url.rstrip("/"):
+            if origin and origin.rstrip("/") not in allowed_origins:
                 return JSONResponse({"detail":"Origin not allowed","code":"ORIGIN_DENIED"},403)
             limit=5*1024**2 if "/chunks/" in request.url.path else (260*1024**2 if request.url.path.endswith("/pcaps") else 2*1024**2)
             try: content_length=int(request.headers.get("content-length","0") or 0)
@@ -200,7 +202,15 @@ def create_app(settings=None):
     def reauthenticate(u,password,otp=None):
         try:passwords.verify(u["password_hash"],password)
         except (VerificationError,TypeError):raise DomainError("REAUTHENTICATE","Password incorrect",403)
-        if u.get("totp_secret") and not pyotp.TOTP(u["totp_secret"]).verify(otp or "",valid_window=0):raise DomainError("MFA_REQUIRED","Valid one-time code required",403)
+        if u.get("totp_secret"):
+            totp=pyotp.TOTP(u["totp_secret"])
+            if not totp.verify(otp or "",valid_window=0):raise DomainError("MFA_REQUIRED","Valid one-time code required",403)
+            # Reject replay of a code already used in this time step.
+            counter=int(time.time())//30
+            with service.db.tx() as c:
+                current=row(c,select(D.users.c.last_totp_counter).where(D.users.c.id==u["id"]))
+                if current and current["last_totp_counter"] is not None and counter<=current["last_totp_counter"]:raise DomainError("MFA_REPLAY","One-time code already used; wait for the next code",403)
+                c.execute(update(D.users).where(D.users.c.id==u["id"]).values(last_totp_counter=counter))
 
     @app.get("/api/v1/status")
     def status():

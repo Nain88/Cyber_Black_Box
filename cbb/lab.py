@@ -1,7 +1,9 @@
-"""Bounded Docker exercises against an ephemeral Windows loopback-only decoy.
+"""Bounded attack-simulation exercises against ephemeral in-app decoy listeners.
 
-No user-supplied shell, destination, payload or command is accepted. Docker
-Desktop connects through its host gateway. Kali journal collection is independent.
+No user-supplied shell, destination, payload or command is accepted. Two
+executors exist: the Docker Compose ``lab`` sender service (preferred, used when
+CBB_LAB_SENDER_URL is set) and, for native Windows installs, a short-lived
+container launched through the local Docker CLI and Docker Desktop host gateway.
 """
 import base64
 import json
@@ -10,6 +12,7 @@ import shutil
 import subprocess
 import threading
 import time
+import httpx
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import BaseRequestHandler, ThreadingTCPServer
@@ -17,7 +20,6 @@ from sqlalchemy import select, update
 from . import db as D
 from .crypto import uid, now, sha, canon, dumps, loads
 from .service import DomainError, row, rows
-from .kali import connection, ssh_base, check_connection
 
 SCENARIOS = {
     'login-failures': {'label': 'Failed login simulation', 'count': 6, 'description': 'Six invalid logins to an isolated Windows decoy; no real accounts.'},
@@ -67,17 +69,25 @@ class LabManager:
         self.thread = None
         self.last_start = -100.0
         self.root = Path(__file__).resolve().parents[1]
-        self.executor = self.execute_docker
+        self.settings = service.settings
+        self.executor = self.execute_sender if self.settings.lab_sender_url else self.execute_docker
 
     def recover(self):
         with self.service.db.tx() as c:
             c.execute(update(D.lab_runs).where(D.lab_runs.c.state.in_(['RUNNING','STOPPING','FINALIZING'])).values(state='INTERRUPTED',ended_at=now(),error='Server restarted. Preserved receipts remain; no exercise was replayed.'))
 
     def available(self):
-        return self.service.settings.mode == 'virtual' and bool(shutil.which('docker'))
+        if self.service.settings.mode != 'virtual':return False
+        return bool(self.settings.lab_sender_url) or bool(shutil.which('docker'))
 
     def check(self):
         if not self.available():raise DomainError('LAB_NOT_CONFIGURED','Docker CLI and virtual deployment mode are required.',422)
+        if self.settings.lab_sender_url:
+            try:
+                r=httpx.get(self.settings.lab_sender_url+'/health/live',timeout=5);r.raise_for_status()
+                return {'reachable':True,'system':'Docker Compose lab sender container','python':'3.12 image','checked_at':now(),'note':'Sender container reachable on the private lab network.'}
+            except httpx.HTTPError as exc:
+                raise DomainError('LAB_CONNECTION_FAILED','Lab sender container is not reachable: '+str(exc)[:200],422) from exc
         try:
             result=subprocess.run(['docker','info','--format','{{.OSType}}'],capture_output=True,text=True,timeout=15)
             if result.returncode or result.stdout.strip()!='linux':raise ValueError('Start Docker Desktop with Linux containers.')
@@ -109,13 +119,31 @@ class LabManager:
                 try:process.wait(timeout=5)
                 except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
 
+    def execute_sender(self, scenario, token, http_port, tcp_port):
+        host=self.settings.lab_callback_host or 'app'
+        result={}
+        def call():
+            try:
+                r=httpx.post(self.settings.lab_sender_url+'/run',json={'scenario':scenario,'token':token,'host':host,'http_port':http_port,'tcp_port':tcp_port},headers={'Authorization':'Bearer '+self.settings.lab_sender_token},timeout=60)
+                result['response']=r
+            except httpx.HTTPError as exc:result['error']=exc
+        worker=threading.Thread(target=call,daemon=True);worker.start()
+        deadline=time.monotonic()+60
+        while worker.is_alive():
+            if self.cancel.wait(.1):return
+            if time.monotonic()>deadline:raise RuntimeError('Lab sender timed out')
+        if 'error' in result:raise RuntimeError('Lab sender unreachable: '+str(result['error'])[:200])
+        response=result['response']
+        if response.status_code!=200:raise RuntimeError('Lab sender refused the exercise ('+str(response.status_code)+'): '+response.text[:200])
+        if not response.json().get('ok') and not self.cancel.is_set():raise RuntimeError('Lab sender reported a failed exercise. Check the lab container logs.')
+
     def status(self, actor):
         with self.service.db.read() as c:
             runs = rows(c, select(D.lab_runs).where(D.lab_runs.c.actor_id==actor['id']).order_by(D.lab_runs.c.started_at.desc()).limit(30))
             for run in runs:
                 receipts=loads(run.pop('receipts'), [])
                 run['observed_count'] = len(receipts)
-                ids=[r['evidence_id'] for r in receipts]
+                ids=[r['evidence_id'] for r in receipts if r.get('evidence_id')]
                 run['sealed_count'] = len(c.execute(select(D.evidence.c.id).where(D.evidence.c.id.in_(ids))).all()) if ids else 0
                 run['preservation_state'] = 'SEALED' if ids and run['sealed_count']==len(ids) else 'PENDING' if ids else 'NO_OBSERVATIONS'
                 run['recoverable'] = bool(ids and not run['job_id'] and run['state'] in ('FAILED','INTERRUPTED','PARTIAL','STOPPED'))
@@ -125,7 +153,7 @@ class LabManager:
                 run['report_error'] = job['error'] if job else None
                 run['report_progress'] = job['progress'] if job else 0
         return {'configured':self.available(), 'busy':self.active is not None, 'scenarios':SCENARIOS, 'runs':runs,
-                'target':'Windows loopback decoy via Docker Desktop host gateway', 'signature':'Ed25519 signed package manifest; PDF/DOCX are covered by their SHA-256 hashes.'}
+                'target':'Decoy listeners inside the app container, reached from the lab sender container' if self.settings.lab_sender_url else 'Loopback decoy via Docker Desktop host gateway', 'signature':'Ed25519 signed package manifest; PDF/DOCX are covered by their SHA-256 hashes.'}
 
     def recover_run(self, actor, rid):
         """Recover preservation/export only. Never executes the sender again."""
@@ -140,7 +168,7 @@ class LabManager:
             if run['state'] not in ('FAILED','INTERRUPTED','PARTIAL','STOPPED') or not receipts:
                 raise DomainError('LAB_STATE','Only stopped or interrupted runs with observations can be recovered',409)
             self.service.seal_pending(limit=6,receipt_ids=[r['receipt_id'] for r in receipts])
-            ids=[r['evidence_id'] for r in receipts]
+            ids=[r['evidence_id'] for r in receipts if r.get('evidence_id')]
             with self.service.db.tx() as c:
                 if len(c.execute(select(D.evidence.c.id).where(D.evidence.c.id.in_(ids))).all())!=len(ids):
                     raise DomainError('LAB_PENDING','Some observations are still pending or quarantined. Inspect collector health before retrying.',409)
@@ -164,7 +192,7 @@ class LabManager:
             if time.monotonic()-self.last_start<6:raise DomainError('LAB_COOLDOWN','Wait six seconds between exercises',429)
             rid,cid=uid(),uid()
             with self.service.db.tx() as c:
-                c.execute(D.cases.insert().values(id=cid,title='LAB · '+SCENARIOS[scenario]['label'],description='Authorized bounded simulation originating in Docker against a Windows loopback decoy. Only received requests are evidence. Run '+rid,owner_id=actor['id'],status='INVESTIGATING',severity=2,version=1,hold=True,created_at=now(),updated_at=now()))
+                c.execute(D.cases.insert().values(id=cid,title='LAB · '+SCENARIOS[scenario]['label'],description='Authorized bounded simulation originating in the Docker lab sender against a temporary decoy. Only received requests are evidence. Run '+rid,owner_id=actor['id'],status='INVESTIGATING',severity=2,version=1,hold=True,created_at=now(),updated_at=now()))
                 c.execute(D.lab_runs.insert().values(id=rid,actor_id=actor['id'],case_id=cid,scenario=scenario,state='RUNNING',started_at=now(),receipts='[]'))
                 self.service.audit(c,actor['id'],'LAB_STARTED',cid,details={'run_id':rid,'scenario':scenario,'limit':SCENARIOS[scenario]['count']})
             self.active=rid;self.cancel.clear();self.last_start=time.monotonic()
@@ -185,21 +213,6 @@ class LabManager:
         self.cancel.set()
         if self.thread:self.thread.join(timeout=12)
 
-    def execute_ssh(self, scenario, token, http_port, tcp_port):
-        base,destination=ssh_base(self.root)
-        command=base+['-R',f'127.0.0.1:18888:127.0.0.1:{http_port}','-R',f'127.0.0.1:18889:127.0.0.1:{tcp_port}',destination,'python3','-']
-        process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        try:
-            process.stdin.write(runner_source(scenario,token).encode());process.stdin.close()
-            deadline=time.monotonic()+45
-            while process.poll() is None:
-                if self.cancel.wait(.1):process.terminate();break
-                if time.monotonic()>deadline:process.terminate();raise RuntimeError('Kali exercise timed out')
-            process.wait(timeout=5)
-            if process.returncode and not self.cancel.is_set():raise RuntimeError('Kali connection or exercise failed. Check VM, SSH key permissions and reserved lab ports.')
-        finally:
-            if process.poll() is None:process.kill();process.wait(timeout=5)
-
     def execute(self, rid):
         servers=[];started_servers=[];error=None;collector=None
         with self.service.db.read() as c:run=row(c,select(D.lab_runs).where(D.lab_runs.c.id==rid))
@@ -207,7 +220,7 @@ class LabManager:
         try:
             enrollment=secrets.token_urlsafe(32)
             with self.service.db.tx() as c:
-                c.execute(D.enrollments.insert().values(id=uid(),token_hash=sha(enrollment.encode()),name='Windows lab observer '+rid[:8],os='lab',expires=time.time()+60,used=False))
+                c.execute(D.enrollments.insert().values(id=uid(),token_hash=sha(enrollment.encode()),name='Lab decoy observer '+rid[:8],os='lab',expires=time.time()+60,used=False))
             credentials=self.service.enroll(enrollment)
             with self.service.db.tx() as c:
                 c.execute(update(D.collectors).where(D.collectors.c.id==credentials['collector_id']).values(configuration=dumps({'intake_case_id':run['case_id']})))
@@ -215,7 +228,7 @@ class LabManager:
             def observe(kind, detail):
                 with observe_lock:
                     if manager.cancel.is_set() or len(records)>=SCENARIOS[run['scenario']]['count']:return False
-                    event={'lab_simulation':True,'run_id':rid,'event_type':kind,'observed_at':now(),'severity':3 if kind=='lab.auth.failure' else 2,'summary':'LAB observed '+kind+' from Docker through host gateway','detail':detail,'transport':'Docker Desktop host gateway; source IP is not original container address'}
+                    event={'lab_simulation':True,'run_id':rid,'event_type':kind,'observed_at':now(),'severity':3 if kind=='lab.auth.failure' else 2,'summary':'LAB observed '+kind+' from Docker lab sender','detail':detail,'transport':'Docker network' if manager.settings.lab_sender_url else 'Docker Desktop host gateway; source IP is not original container address'}
                     raw=canon(event)
                     receipt=manager.service.accept(collector,[{'boot_id':rid,'source_seq':str(len(records)+1),'source_type':'lab.fixture','event_type':kind,'collected_at':event['observed_at'],'original_timestamp':event['observed_at'],'raw_media_type':'application/json','raw_base64':base64.b64encode(raw).decode(),'raw_sha256':sha(raw),'source_cursor':{'run_id':rid}}])[0]
                     records.append(receipt)
@@ -230,7 +243,7 @@ class LabManager:
                     code=403
                     if authorized and self.path=='/continue':code=200
                     elif authorized and self.path in PATHS and run['scenario']=='web-probes':
-                        code=404 if observe('lab.http.probe',{'path':self.path,'status':404}) else 409
+                        code=404 if observe('lab.http.probe',{'path':self.path,'status':404,'peer':self.client_address[0],'user_agent':self.headers.get('User-Agent','')[:120]}) else 409
                     self.send_response(code);self.send_header('Content-Length','0');self.end_headers()
                 def do_POST(self):
                     if self.path!='/api/login' or run['scenario']!='login-failures' or not secrets.compare_digest(self.headers.get('X-Lab-Token',''),token):code=403
@@ -245,7 +258,7 @@ class LabManager:
                             username=parsed.get('username')
                             if username is not None and (not isinstance(username,str) or len(username)>64):raise ValueError()
                             # Store only the observed username; never retain passwords.
-                            code=401 if observe('lab.auth.failure',{'username':username,'status':401}) else 409
+                            code=401 if observe('lab.auth.failure',{'username':username,'status':401,'peer':self.client_address[0]}) else 409
                         except (ValueError,OSError):code=400
                     self.send_response(code);self.send_header('Content-Length','0');self.end_headers()
             class TCP(BaseRequestHandler):
@@ -259,10 +272,11 @@ class LabManager:
                             incoming+=chunk
                         incoming=incoming.strip().decode('ascii')
                         if run['scenario']=='port-probe' and secrets.compare_digest(incoming,token):
-                            if observe('lab.port.probe',{'listener':'Windows isolated TCP decoy'}):self.request.sendall(b'LAB\n')
+                            if observe('lab.port.probe',{'listener':'Isolated TCP decoy','peer':self.client_address[0]}):self.request.sendall(b'LAB\n')
                     except (OSError,UnicodeError):pass
-            http=ThreadingHTTPServer(('127.0.0.1',0),HTTP);servers.append(http)
-            tcp=ThreadingTCPServer(('127.0.0.1',0),TCP);tcp.daemon_threads=True;servers.append(tcp)
+            bind=manager.settings.lab_bind or '127.0.0.1'
+            http=ThreadingHTTPServer((bind,0),HTTP);servers.append(http)
+            tcp=ThreadingTCPServer((bind,0),TCP);tcp.daemon_threads=True;servers.append(tcp)
             for server in servers:
                 threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.1},daemon=True).start();started_servers.append(server)
             self.executor(run['scenario'],token,http.server_address[1],tcp.server_address[1])
@@ -275,8 +289,9 @@ class LabManager:
                 # Accept only already sealed observations; do not invent evidence
                 # for failed requests. Existing intake worker owns sealing.
                 deadline=time.monotonic()+45
-                ids=[r['evidence_id'] for r in records]
-                receipt_ids=[r['receipt_id'] for r in records]
+                accepted=[r for r in records if r.get('evidence_id')]
+                ids=[r['evidence_id'] for r in accepted]
+                receipt_ids=[r['receipt_id'] for r in accepted]
                 while ids:
                     # A bounded run must not wait behind an unrelated historical
                     # backlog. Concurrent sealing rechecks STAGED under the DB lock.

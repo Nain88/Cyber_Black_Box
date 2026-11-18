@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {bytes,utc,routeQuery,parseJson,caseLabel,statusTone} from './lib';
+import {bytes,utc,routeQuery,parseJson,caseLabel,statusTone,severityLabel,pick,asArray,isOnline} from './lib';
 describe('evidence display helpers',()=>{
  it('distinguishes cases with the same title and version',()=>{const first={id:'case-one',title:'Failed login',version:7,created_at:'2026-11-14T10:00:00Z'};const second={...first,id:'case-two'};expect(caseLabel(first)).not.toBe(caseLabel(second));expect(caseLabel(first)).toContain('case-one');expect(caseLabel(first)).toContain('UTC');});
  it('does not confuse missing values with zero measurements',()=>{expect(bytes(null)).toBe('Unknown');expect(bytes(0)).toBe('0 B');expect(utc(null)).toBe('Unknown');expect(utc('invalid')).toBe('Unknown');});
@@ -16,5 +16,21 @@ describe('status presentation',()=>{
   expect(statusTone('Unanchored')).toBe('amber');
   expect(statusTone('PARTIAL')).toBe('amber');
   expect(statusTone('Valid')).toBe('green');
+ });
+});
+
+describe('severity and status coverage',()=>{
+ it('orders severity labels from informational to critical',()=>{
+  expect(severityLabel(1)).toBe('Informational');expect(severityLabel(2)).toBe('Low');expect(severityLabel(5)).toBe('Critical');expect(severityLabel(9)).toBe('Unknown');
+ });
+ it('gives open work items a visible tone',()=>{
+  for(const s of ['NEW','PROPOSED','NEEDS_REVIEW','INVESTIGATING']) expect(statusTone(s)).toBe('amber');
+  expect(statusTone('ACKNOWLEDGED')).toBe('blue');expect(statusTone('Needs review')).toBe('amber');
+ });
+ it('reads nested fields without throwing',()=>{
+  expect(pick({a:{b:[1,2]}},'a','b',1)).toBe(2);expect(pick(null,'a')).toBeUndefined();expect(asArray(undefined)).toEqual([]);
+ });
+ it('prefers the server online flag',()=>{
+  expect(isOnline({online:true,state:'ACTIVE'})).toBe(true);expect(isOnline({online:true,state:'REVOKED'})).toBe(false);expect(isOnline({state:'ACTIVE',last_heartbeat:null})).toBe(false);
  });
 });

@@ -1,5 +1,33 @@
 # Cyber Black Box
 
+## Run everything in Docker (recommended)
+
+The whole platform runs as **four containers** in Docker Desktop. It needs no Kali VM, WSL, Python or Node on the host.
+
+| Container | Role |
+| --- | --- |
+| `db` | PostgreSQL 17: evidence index, cases, custody ledger |
+| `app` | FastAPI API, web console and background workers. Published at http://localhost:8765 (loopback only) |
+| `trust` | Isolated Ed25519 signer plus checkpoint witness. Holds the deployment signing key |
+| `lab` | Attack-simulation sender. Runs the three bounded Lab scenarios against decoys inside `app` |
+
+1. Start Docker Desktop (Linux containers).
+2. Double-click **Start-Docker.cmd**. On first run it creates `.env` with random secrets, then builds and starts the stack. It opens the console and prints the first-time setup token.
+3. Paste the token and create the administrator account (password of 12 or more characters).
+
+Useful commands:
+
+```powershell
+docker compose ps                      # container health
+docker compose logs -f app             # live server log (also shows the setup token)
+docker compose down                    # stop (evidence volumes are kept)
+.\Start-Docker.cmd -Reset              # wipe ALL evidence volumes and start fresh
+```
+
+`db` and `trust` sit on an internal network that the host and the lab sender cannot reach. `lab` can reach only `app`. See [the 18 November audit](docs/FYP-AUDIT-2026-11-18.md) for what was changed and tested.
+
+---
+
 **18 November: the active simulation sender now runs in Docker Desktop Linux containers. Kali is not required for the three integrated scenarios. See [Docker setup](docs/DOCKER-LAB.md).**
 
 The [14 November Kali presentation guide](docs/KALI-PRESENTATION-2026-11-14.md) documents the earlier SSH sender. Its sender instructions do not apply to the current Docker Lab page. Optional Kali journal collection remains separate from Docker simulations.

@@ -101,9 +101,15 @@ def main(argv=None):
         if a.command=="serve":
             from .api import create_app
             import uvicorn
-            if settings.mode=="virtual" and a.host not in ("127.0.0.1","localhost","::1"):
+            if settings.mode=="virtual" and a.host not in ("127.0.0.1","localhost","::1") and not settings.container:
                 raise ValueError("Virtual Mode is loopback-only. Use the hardened Cloud Mode for remote access.")
-            with exclusive(settings.data):uvicorn.run(create_app(settings),host=a.host,port=a.port,proxy_headers=False)
+            with exclusive(settings.data):
+                app=create_app(settings)
+                token_file=settings.data/"keys"/"bootstrap.token"
+                if token_file.exists():
+                    banner="="*64
+                    for line in (banner,"FIRST-TIME SETUP TOKEN (paste into the setup screen):",token_file.read_text().strip(),banner):print(line,flush=True)
+                uvicorn.run(app,host=a.host,port=a.port,proxy_headers=False)
             return 0
         if a.command=="restore":
             if settings.data.exists() and any(settings.data.iterdir()):raise ValueError("Restore requires an empty target directory")

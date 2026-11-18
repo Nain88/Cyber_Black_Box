@@ -1,0 +1,116 @@
+# Cyber Black Box - complete local deployment in four containers.
+#
+#   db     PostgreSQL 17 evidence/case database
+#   app    API + web console + background workers  -> http://localhost:8765
+#   trust  isolated Ed25519 signer + checkpoint witness
+#   lab    attack-simulation sender for the Lab page
+#
+# Start with Start-Docker.cmd (Windows) or scripts/docker-up.sh, which create
+# .env with random secrets on first run. Manually: docker compose build app
+# then docker compose up -d (one image is shared by app, trust and lab).
+name: cyber-black-box
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: cbb
+      POSTGRES_DB: cbb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run Start-Docker.cmd or scripts/docker-up.sh to create .env}
+    volumes: [database:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U cbb -d cbb]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: 1g
+
+  trust:
+    <<: *hardening
+    image: cyber-black-box:latest
+    pull_policy: never
+    command: [/app/deploy/docker/trust-entrypoint.sh]
+    environment:
+      CBB_SIGNER_TOKEN: ${CBB_SIGNER_TOKEN:?Run Start-Docker.cmd to create .env}
+    volumes: [trust:/data]
+    tmpfs: [/tmp:mode=1777]
+    networks: [backend]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request as u;u.urlopen('http://127.0.0.1:8766/health/live',timeout=3);u.urlopen('http://127.0.0.1:8767/health/live',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 10
+    mem_limit: 384m
+
+  app:
+    <<: *hardening
+    build: .
+    image: cyber-black-box:latest
+    ports: ["127.0.0.1:${CBB_PORT:-8765}:8765"]
+    environment:
+      CBB_MODE: virtual
+      CBB_PUBLIC_URL: http://localhost:${CBB_PORT:-8765}
+      CBB_DATABASE_URL: postgresql+psycopg://cbb:${POSTGRES_PASSWORD}@db/cbb
+      CBB_SIGNER_URL: http://trust:8766
+      CBB_SIGNER_TOKEN: ${CBB_SIGNER_TOKEN}
+      CBB_WITNESS_URL: http://trust:8767
+      CBB_WITNESS_AUTO_TRUST: "true"
+      CBB_WITNESS_INDEPENDENT: "false"
+      CBB_LAB_SENDER_URL: http://lab:8780
+      CBB_LAB_SENDER_TOKEN: ${CBB_LAB_SENDER_TOKEN:?Run Start-Docker.cmd to create .env}
+      CBB_LAB_BIND: 0.0.0.0
+      CBB_LAB_CALLBACK_HOST: app
+      CBB_ALLOW_SELF_APPROVAL: "false"
+      # Optional: local AI with Ollama running on the Windows host.
+      CBB_OLLAMA_URL: ${CBB_OLLAMA_URL:-http://host.docker.internal:11434}
+      CBB_OLLAMA_ALLOWED_HOSTS: host.docker.internal
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      db: {condition: service_healthy}
+      trust: {condition: service_healthy}
+    volumes: [evidence:/data]
+    tmpfs: ["/tmp:size=300m,mode=1777"]
+    networks: [frontend, backend, lab]
+    mem_limit: 2g
+    cpus: 2
+
+  lab:
+    <<: *hardening
+    image: cyber-black-box:latest
+    pull_policy: never
+    command: [python, -m, cbb.labsender, --host, 0.0.0.0, --port, "8780"]
+    environment:
+      CBB_LAB_SENDER_TOKEN: ${CBB_LAB_SENDER_TOKEN}
+      CBB_LAB_ALLOWED_TARGETS: app
+    tmpfs: [/tmp:mode=1777]
+    networks: [lab]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8780/health/live',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    pids_limit: 64
+    mem_limit: 192m
+    cpus: 0.5
+
+networks:
+  # Host access to the web console (published on 127.0.0.1 only).
+  frontend: {}
+  # db and trust are unreachable from the host and from the lab sender.
+  backend: {internal: true}
+  # Isolated attack-simulation segment: only app and lab.
+  lab: {internal: true}
+
+volumes:
+  database:
+  evidence:
+  trust:

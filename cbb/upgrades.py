@@ -12,6 +12,8 @@ from .service import DomainError, row, rows
 from .cloud import settings
 from .tooling import mega_command, tool_probe
 
+_live_seen={}
+
 class MegaPolicy(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     enabled:bool=False
@@ -47,7 +49,13 @@ def register_upgrade_routes(app,service,user,admin,investigator):
                 envelope=loads(item.pop('envelope'))
                 item['subject']=envelope['subject']
                 item['quality_flags']=envelope['quality_flags']
-            service.audit(c,u['id'],'LIVE_EVIDENCE_VIEW','live-monitor',details={'returned_ids':[x['id'] for x in items],'source':source})
+            # Polling must not flood the immutable custody chain: record a view
+            # only when this user's visible result set actually changes.
+            returned=[x['id'] for x in items];key=(u['id'],source or '')
+            if _live_seen.get(key)!=returned:
+                _live_seen[key]=returned
+                if len(_live_seen)>1000:_live_seen.clear()
+                service.audit(c,u['id'],'LIVE_EVIDENCE_VIEW','live-monitor',details={'returned_ids':returned,'source':source})
             return {'checked_at':now(),'items':items,'scope':'All evidence for investigators; assigned case evidence for other roles','window_limit':limit}
 
     @app.get("/api/v1/integrations")

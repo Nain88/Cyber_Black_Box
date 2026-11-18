@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from .crypto import canon, keypair, public_b64, sha, sign
 
-DOMAINS = {"CBB-CHECKPOINT-v1", "CBB-CONFIG-v1", "CBB-EXPORT-v1", "CBB-ACQUISITION-v1", "CBB-JOB-v1"}
+DOMAINS = {"CBB-CHECKPOINT-v1", "CBB-CONFIG-v1", "CBB-EXPORT-v1", "CBB-ACQUISITION-v1", "CBB-JOB-v1", "CBB-REPORT-v1"}
 
 
 def create_signer(data=None, token=None):

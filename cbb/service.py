@@ -224,6 +224,11 @@ class Service:
         return document
 
     def anchor_pending(self):
+        if self.settings.witness_url and not self.settings.witness_public_key and self.settings.witness_auto_trust:
+            # Development/demo bootstrap only: trust-on-first-use of a co-hosted
+            # witness. Receipts are recorded as NOT independent.
+            r=httpx.get(self.settings.witness_url+"/public-key",timeout=10);r.raise_for_status()
+            self.settings.witness_public_key=r.json()["public_key"];self.settings.witness_independent=False
         if not self.settings.witness_url or not self.settings.witness_public_key:return
         with self.db.read() as c:
             pending=rows(c,select(D.checkpoints).where(~D.checkpoints.c.id.in_(select(D.witness_receipts.c.checkpoint_id))).order_by(D.checkpoints.c.sequence))
