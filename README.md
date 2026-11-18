@@ -2,7 +2,7 @@
 
 **18 November: the active simulation sender now runs in Docker Desktop Linux containers. Kali is not required for the three integrated scenarios. See [Docker setup](docs/DOCKER-LAB.md).**
 
-**Previous Kali presentation setup: Kali simulation sender → Windows decoy → preserved evidence → signed reports. Docker is not required.** Start with the [14 November Kali presentation guide](docs/KALI-PRESENTATION-2026-11-14.md). The Lab page includes a connection check, Start/Stop controls and automatic report downloads. The running VM verified on this laptop is Kali in VirtualBox; a private VMware Kali SSH endpoint can also be configured.
+The [14 November Kali presentation guide](docs/KALI-PRESENTATION-2026-11-14.md) documents the earlier SSH sender. Its sender instructions do not apply to the current Docker Lab page. Optional Kali journal collection remains separate from Docker simulations.
 
 Editable source for a dual-deployment FYP evidence preservation and investigation platform. Windows Virtual Mode and Linux Cloud Mode share the API, data model and web interface. No hardware mode is included.
 
