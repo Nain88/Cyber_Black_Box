@@ -24,7 +24,7 @@ class Advice(BaseModel):
 def ollama_url():
     url=os.getenv("CBB_OLLAMA_URL","http://127.0.0.1:11434").rstrip("/")
     parsed=urlparse(url)
-    if parsed.scheme not in {"http","https"} or parsed.hostname not in {"localhost","127.0.0.1","::1"} or parsed.username or parsed.password or parsed.query:raise DomainError("AI_ENDPOINT","Only a local Ollama endpoint is supported in this privacy-preserving profile",422)
+    if parsed.scheme not in {"http","https"} or parsed.hostname not in {"localhost","127.0.0.1","::1"}|{h.strip() for h in os.getenv("CBB_OLLAMA_ALLOWED_HOSTS","").split(",") if h.strip()} or parsed.username or parsed.password or parsed.query:raise DomainError("AI_ENDPOINT","Only a local Ollama endpoint is supported in this privacy-preserving profile",422)
     return url
 
 def analyze_case(service,payload):

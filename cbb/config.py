@@ -30,6 +30,13 @@ class Settings:
     s3_retention_days: int = field(default_factory=lambda: int(os.getenv("CBB_S3_RETENTION_DAYS", "90")))
     s3_retention_mode: str = field(default_factory=lambda: os.getenv("CBB_S3_RETENTION_MODE", "GOVERNANCE"))
     retention_days: int = 90
+    allowed_origins: str = field(default_factory=lambda: os.getenv("CBB_ALLOWED_ORIGINS", ""))
+    container: bool = field(default_factory=lambda: os.getenv("CBB_CONTAINER", "false").lower() == "true")
+    witness_auto_trust: bool = field(default_factory=lambda: os.getenv("CBB_WITNESS_AUTO_TRUST", "false").lower() == "true")
+    lab_sender_url: str = field(default_factory=lambda: os.getenv("CBB_LAB_SENDER_URL", ""))
+    lab_sender_token: str = field(default_factory=lambda: os.getenv("CBB_LAB_SENDER_TOKEN", ""))
+    lab_bind: str = field(default_factory=lambda: os.getenv("CBB_LAB_BIND", "127.0.0.1"))
+    lab_callback_host: str = field(default_factory=lambda: os.getenv("CBB_LAB_CALLBACK_HOST", ""))
     allow_self_approval: bool = field(default_factory=lambda: os.getenv("CBB_ALLOW_SELF_APPROVAL", "false").lower() == "true")
 
     def prepare(self):
@@ -50,4 +57,16 @@ class Settings:
             if not self.signer_url or len(self.signer_token) < 32:
                 raise ValueError("Cloud Mode requires the separate signer service")
         return self
+
+    def origins(self):
+        """Browser origins allowed to make state-changing requests."""
+        allowed = {self.public_url.rstrip("/")}
+        allowed |= {o.strip().rstrip("/") for o in self.allowed_origins.split(",") if o.strip()}
+        if self.mode == "virtual":
+            # localhost and 127.0.0.1 are the same loopback deployment.
+            for origin in list(allowed):
+                for a, b in (("//127.0.0.1", "//localhost"), ("//localhost", "//127.0.0.1")):
+                    if a in origin:
+                        allowed.add(origin.replace(a, b))
+        return allowed
 

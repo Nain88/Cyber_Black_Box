@@ -31,9 +31,31 @@ export function caseLabel(c: Row): string {
 }
 
 export function statusTone(value: string): string {
-  const status = value.trim().toUpperCase();
-  if (['FAILED','INVALID','REVOKED','QUARANTINED','REJECTED'].includes(status)) return 'red';
-  if (['ONLINE','ACTIVE','COMPLETE','VALID','SEALED','RESOLVED','APPROVED'].includes(status)) return 'green';
-  if (['PENDING','STAGED','QUEUED','UNANCHORED','REVIEW','LEASED','RUNNING','STOPPING','FINALIZING','PARTIAL','INTERRUPTED'].includes(status)) return 'amber';
+  const status = String(value ?? '').trim().toUpperCase().replace(/\s+/g,'_');
+  if (['FAILED','INVALID','REVOKED','QUARANTINED','REJECTED','ERROR','OFFLINE','STALE','CANCELLED','EXPIRED','UNAVAILABLE'].includes(status)) return 'red';
+  if (['ONLINE','ACTIVE','COMPLETE','COMPLETED','VALID','SEALED','RESOLVED','APPROVED','ACCEPTED','ENABLED','AVAILABLE','INSTALLED','RECENT','VERIFIED','RUNNING_OK'].includes(status)) return 'green';
+  if (['PENDING','STAGED','QUEUED','UNANCHORED','REVIEW','LEASED','RUNNING','STOPPING','FINALIZING','PARTIAL','INTERRUPTED','NEEDS_REVIEW','PROPOSED','TRIAGE','INVESTIGATING','NEW','UNREVIEWED','DISABLED','NOT_CONFIGURED','MISSING'].includes(status)) return 'amber';
+  if (['OPEN','ACKNOWLEDGED','IN_PROGRESS','INFO','RETAINED'].includes(status)) return 'blue';
   return 'slate';
 }
+
+/** Evidence severity scale used by the backend parser: 0 unknown, 1 informational … 5 critical. */
+export const severityLabels = ['Unknown','Informational','Low','Medium','High','Critical'];
+export function severityLabel(value: unknown): string { const n = Number(value); return Number.isInteger(n) && n >= 0 && n <= 5 ? severityLabels[n] : 'Unknown'; }
+
+/** Safe property access for loosely typed API documents. */
+export function pick<T = any>(value: unknown, ...path: (string|number)[]): T | undefined {
+  let cur: any = value;
+  for (const key of path) { if (cur == null || typeof cur !== 'object') return undefined; cur = cur[key]; }
+  return cur as T;
+}
+export function asArray<T = any>(value: unknown): T[] { return Array.isArray(value) ? value as T[] : []; }
+
+/** Online state: prefer the server-computed flag; fall back to heartbeat age. */
+export function isOnline(c: Row): boolean {
+  if (typeof c.online === 'boolean') return c.online && c.state === 'ACTIVE';
+  const t = Date.parse(c.last_heartbeat || '');
+  return c.state === 'ACTIVE' && Number.isFinite(t) && Date.now() - t < 90000;
+}
+
+export function hashPath(page: string, values: Row = {}): string { return routeQuery(page, values); }
