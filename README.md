@@ -9,9 +9,9 @@ Editable source for a dual-deployment FYP evidence preservation and investigatio
 
 The November Windows release includes a native Suricata/Npcap sensor, Windows Firewall evidence, a polling Live monitor, and local Ollama case analysis. Use [the Windows live demo guide](docs/WINDOWS-LIVE-DEMO.md) and [the acceptance audit](docs/LIVE-ACCEPTANCE.md) for the tested laptop setup and coverage limits.
 
-The [12 November release acceptance](docs/RELEASE-ACCEPTANCE-2026-11-12.md) records the current automated checks, real HTTP smoke test, restore test, and remaining deployment limits.
+The [12 November release acceptance](docs/RELEASE-ACCEPTANCE-2026-11-12.md) records the automated checks from that date, real HTTP smoke test, restore test, and remaining deployment limits.
 
-The [11 November code audit](docs/AUDIT-2026-11-11.md) records the latest fixes, automated checks, dependency scan, and Docker setup status.
+The [11 November code audit](docs/AUDIT-2026-11-11.md) records the fixes, automated checks, dependency scan, and Docker setup status from that date.
 
 Start on Your Computer
 
@@ -33,7 +33,7 @@ pnpm --dir web build
 
 ## Kali log collection
 
-The integrated **Lab** page provides administrator Start/Stop buttons for three bounded Kali simulations, automatically creates an evidence case, and generates JSON, Word and PDF reports. Each report has a detached Ed25519 signature and is included in a signed evidence ZIP. Follow the [FYP presentation walkthrough](docs/FYP-PRESENTATION.md) for setup, verification and coverage limits.
+The integrated **Attack simulation lab** uses Docker for its three bounded scenarios and provides administrator Start/Stop controls. It automatically creates an evidence case and generates JSON, Word and PDF reports. Each report has a detached Ed25519 signature and is included in a signed evidence ZIP. Follow the [current Docker walkthrough](docs/DOCKER-LAB.md) for setup, verification and coverage limits. Kali journal collection is an optional, separate workflow.
 
 With the existing Kali VM running, start Cloud Box and then `Start-Kali-Log-Bridge.cmd`. Keep both terminals open. The bridge reconnects interrupted SSH connections; existing queued events remain with the Kali collector. See [Kali connection setup and verified behavior](docs/KALI-LOG-CONNECTION.md).
 

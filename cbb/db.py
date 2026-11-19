@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from threading import RLock
 from sqlalchemy import (create_engine, MetaData, Table, Column, String, Text, Integer,
-                        BigInteger, Boolean, LargeBinary, Float, ForeignKey, UniqueConstraint, event, text)
+                        BigInteger, Boolean, LargeBinary, Float, ForeignKey, UniqueConstraint, Index, event, text)
 
 meta = MetaData()
 def table(name, *cols): return Table(name, meta, *cols)
@@ -43,6 +43,20 @@ ai_runs = table("ai_runs", idcol(), txt("case_id"), txt("actor_id"), txt("engine
 lab_runs = table("lab_runs", idcol(), txt("actor_id"), txt("case_id"), txt("scenario"), txt("state"), txt("started_at"), txt("ended_at"), txt("receipts"), txt("error"), txt("job_id"))
 
 
+# These indexes support bounded queue claims, ordered paging and correlation.
+# They do not change immutable evidence or its signed representation.
+PERFORMANCE_INDEXES = (
+    Index("ix_cbb_jobs_lane", jobs.c.state, jobs.c.kind, jobs.c.created_at, jobs.c.next_attempt),
+    Index("ix_cbb_jobs_pending", jobs.c.state, jobs.c.created_at),
+    Index("ix_cbb_receipts_pending", receipts.c.state, receipts.c.received_at),
+    Index("ix_cbb_evidence_sequence", evidence.c.sequence),
+    Index("ix_cbb_evidence_correlation", evidence.c.asset_id, evidence.c.event_type, evidence.c.sequence),
+    Index("ix_cbb_evidence_segment", evidence.c.segment_id, evidence.c.sequence),
+    Index("ix_cbb_case_evidence_scope", case_evidence.c.evidence_id, case_evidence.c.active, case_evidence.c.case_id),
+    Index("ix_cbb_custody_target", custody.c.target, custody.c.sequence),
+)
+
+
 class Database:
     def __init__(self, url):
         self.sqlite = url.startswith("sqlite")
@@ -58,6 +72,10 @@ class Database:
                 cur.close()
         meta.create_all(self.engine)
         with self.engine.begin() as c:
+            # create_all skips indexes on existing tables; explicitly upgrade
+            # existing installations as well as newly initialized databases.
+            for index in PERFORMANCE_INDEXES:
+                index.create(c, checkfirst=True)
             if self.sqlite:
                 for name in ("evidence", "custody_entries", "checkpoints", "notes"):
                     for op in ("UPDATE", "DELETE"):

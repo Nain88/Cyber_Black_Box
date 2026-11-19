@@ -4,9 +4,9 @@ export function setCsrf(value: string) { csrf = value; }
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string, public requestId?: string) { super(message); }
 }
-export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function api<T = any>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch('/api/v1' + path, {
-    method, credentials: 'same-origin',
+    method, credentials: 'same-origin', signal,
     headers: { ...(body !== undefined && !(body instanceof FormData) ? {'Content-Type': 'application/json'} : {}), ...(method !== 'GET' ? {'X-CSRF-Token': csrf, 'Idempotency-Key': crypto.randomUUID()} : {}) },
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
   });

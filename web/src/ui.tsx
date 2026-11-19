@@ -11,9 +11,39 @@ export const sources=['windows.event','windows.firewall','linux.journal','surica
 export const roleWrite=(u:Row)=>['admin','investigator'].includes(u.role);
 
 export function useData<T=any>(path:string|null,poll=0){
- const {revision}=useApp();const [data,setData]=useState<T>();const [error,setError]=useState('');const [loading,setLoading]=useState(false);const [stamp,setStamp]=useState('');const [local,setLocal]=useState(0);
- useEffect(()=>{let active=true;const load=async()=>{if(!path)return;setLoading(true);try{const value=await api<T>(path);if(active){setData(value);setError('');setStamp(new Date().toISOString());}}catch(e){if(active)setError((e as Error).message);}finally{if(active)setLoading(false);}};void load();const timer=poll?setInterval(()=>{if(!document.hidden)void load()},poll):null;return()=>{active=false;if(timer)clearInterval(timer)}},[path,revision,local,poll]);
- return {data,error,loading,stamp,reload:()=>setLocal(x=>x+1)};
+ const {revision}=useApp();
+ type Snapshot={path:string|null;data?:T;error:string;loading:boolean;stamp:string};
+ const [snapshot,setSnapshot]=useState<Snapshot>({path,data:undefined,error:'',loading:!!path,stamp:''});
+ const [local,setLocal]=useState(0);
+ useEffect(()=>{
+  if(!path)return;
+  let active=true;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  const controller=new AbortController();
+  const load=async()=>{
+   if(!active)return;
+   setSnapshot(previous=>previous.path===path?{...previous,loading:true}:{path,data:undefined,error:'',loading:true,stamp:''});
+   try{
+    const value=await api<T>(path,'GET',undefined,controller.signal);
+    if(active)setSnapshot({path,data:value,error:'',loading:false,stamp:new Date().toISOString()});
+   }catch(e){
+    if(active)setSnapshot(previous=>({...previous,error:(e as Error).message,loading:false}));
+   }finally{
+    // Schedule only after the request settles: slow servers never accumulate polls.
+    if(active&&poll>0)timer=setTimeout(check,poll);
+   }
+  };
+  const check=()=>{
+   if(!active)return;
+   if(document.hidden)timer=setTimeout(check,poll);
+   else void load();
+  };
+  void load();
+  return()=>{active=false;controller.abort();if(timer!==undefined)clearTimeout(timer)};
+ },[path,revision,local,poll]);
+ // Never display another case/filter's results while a different request loads.
+ const current=snapshot.path===path&&path?snapshot:{data:undefined,error:'',loading:!!path,stamp:''};
+ return {...current,reload:()=>setLocal(x=>x+1)};
 }
 export type DataState=ReturnType<typeof useData>;
 export function State({state,children,empty,description}:{state:DataState;children:ReactNode;empty?:boolean;description?:string}){return <>{state.error&&<div className="notice danger" role="alert"><ShieldAlert size={18}/><div><strong>{state.data?'Showing previous results. ':''}{state.error}</strong><small>Refresh to try again. Existing values are not replaced with zeros.</small></div><button className="small secondary" onClick={state.reload}>Retry</button></div>}{!state.data&&state.loading?<div className="loading"><LoaderCircle className="spin"/>Loading workspace…</div>:empty?<Empty description={description}/>:children}</>}
@@ -21,7 +51,7 @@ export function Empty({title='Nothing here yet',description='New records will ap
 export function Badge({children,tone}:{children:ReactNode;tone?:string}){return <span className={'badge '+(tone||statusTone(String(children)))}><span className="badge-dot"/>{children}</span>}
 export function Severity({value}:{value:number}){return <Badge tone={value>=4?'red':value>=3?'amber':'slate'}>{['Unknown','Low','Informational','Medium','High','Critical'][value]||`Level ${value}`}</Badge>}
 export function Json({value}:{value:unknown}){return <pre className="json">{pretty(value)}</pre>}
-export function CopyButton({value,label='Copy'}:{value:string;label?:string}){const {notify}=useApp();return <button className="icon-button" title={label} aria-label={label} onClick={()=>navigator.clipboard.writeText(value).then(()=>notify('Copied to clipboard')).catch(()=>notify('Copy unavailable in this browser','error'))}><Copy size={15}/></button>}
+export function CopyButton({value,label='Copy'}:{value:string;label?:string}){const {notify}=useApp();return <button type="button" className="icon-button" title={label} aria-label={label} onClick={async()=>{try{await navigator.clipboard.writeText(value);notify('Copied to clipboard')}catch{notify('Copy unavailable in this browser','error')}}}><Copy size={15}/></button>}
 export function Id({value}:{value:unknown}){return <span className="mono" title={String(value||'')}>{short(value)}</span>}
 export function Stamp({value}:{value:unknown}){return <time title={utc(value)}>{utc(value)}</time>}
 export function Notice({children,tone='info'}:{children:ReactNode;tone?:string}){return <div className={'notice '+tone}>{tone==='danger'?<ShieldAlert size={18}/>:<CircleHelp size={18}/>}<div>{children}</div></div>}
@@ -34,7 +64,18 @@ export function TextArea({label,name,defaultValue='',help,required=false,rows=4}
 export function Form({children,onSubmit,submit='Save changes',danger=false}:{children:ReactNode;onSubmit:(values:Record<string,string>,form:HTMLFormElement)=>Promise<unknown>;submit?:string;danger?:boolean}){const [busy,setBusy]=useState(false);const [error,setError]=useState('');return <form className="form" onSubmit={async e=>{e.preventDefault();const f=e.currentTarget;setBusy(true);setError('');try{await onSubmit(Object.fromEntries(new FormData(f).entries()) as Record<string,string>,f)}catch(x){setError((x as Error).message)}finally{setBusy(false)}}}>{children}{error&&<div className="form-error" role="alert">{error}</div>}<div className="form-footer"><button className={danger?'destructive':'primary'} disabled={busy} type="submit">{busy?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {busy?'Working…':submit}</button></div></form>}
 export type Col={label:string;key?:string;render?:(r:Row)=>ReactNode;className?:string};
 export function Table({columns,rows,onRow,empty='No records match this view.'}:{columns:Col[];rows:Row[];onRow?:(r:Row)=>void;empty?:string}){return rows.length?<div className="table-wrap"><table><thead><tr>{columns.map((c,i)=><th key={i} className={c.className}>{c.label}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr key={r.id||i} className={onRow?'clickable':''}>{columns.map((c,j)=><td key={j} className={c.className}>{onRow&&j===0?<button className="cell-link" onClick={()=>onRow(r)}>{c.render?c.render(r):String(r[c.key||'']??'—')}</button>:c.render?c.render(r):String(r[c.key||'']??'—')}</td>)}</tr>)}</tbody></table></div>:<Empty description={empty}/>}
-export function Tabs({items,value,onChange}:{items:string[];value:string;onChange:(x:string)=>void}){return <div className="tabs" role="tablist">{items.map(i=><button type="button" role="tab" aria-selected={value===i} key={i} className={value===i?'selected':''} onClick={()=>onChange(i)}>{i}</button>)}</div>}
+export function Tabs({items,value,onChange}:{items:string[];value:string;onChange:(x:string)=>void}){return <div className="tabs" role="tablist">{items.map((item,index)=><button type="button" role="tab" aria-selected={value===item} tabIndex={value===item?0:-1} key={item} className={value===item?'selected':''} onClick={()=>onChange(item)} onKeyDown={event=>{
+ let next=index;
+ if(event.key==='ArrowRight')next=(index+1)%items.length;
+ else if(event.key==='ArrowLeft')next=(index-1+items.length)%items.length;
+ else if(event.key==='Home')next=0;
+ else if(event.key==='End')next=items.length-1;
+ else return;
+ event.preventDefault();
+ onChange(items[next]);
+ const buttons=event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+ buttons?.[next]?.focus();
+}}>{item}</button>)}</div>}
 export function DetailGrid({items}:{items:[string,ReactNode][]}){return <dl className="detail-grid">{items.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value??'—'}</dd></div>)}</dl>}
 export function Confirm({description,onConfirm,label='Confirm',reason=true}:{description:ReactNode;onConfirm:(v:Record<string,string>)=>Promise<unknown>;label?:string;reason?:boolean}){return <Form onSubmit={onConfirm} submit={label} danger><Notice tone="warning">{description}</Notice>{reason&&<TextArea label="Reason" name="reason" required/>}</Form>}
 

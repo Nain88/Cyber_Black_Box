@@ -6,16 +6,20 @@ import json
 import sys
 import os
 import subprocess
+import tempfile
 root=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(root))
 from cbb.schema import WireEvent
-from cbb.config import Settings
+from scripts._isolated_runtime import isolated_settings
 from cbb.api import create_app
 docs=root/'docs'
 (docs/'ingest.schema.json').write_text(json.dumps(WireEvent.model_json_schema(),indent=2),encoding='utf-8')
-app=create_app(Settings(data=root/'work/schema-data',workers=False))
-(docs/'openapi.json').write_text(json.dumps(app.openapi(),indent=2),encoding='utf-8')
-app.state.service.db.engine.dispose()
+with tempfile.TemporaryDirectory(prefix='cbb-schema-') as schema_dir:
+    app=create_app(isolated_settings(Path(schema_dir),workers=False))
+    try:
+        (docs/'openapi.json').write_text(json.dumps(app.openapi(),indent=2),encoding='utf-8')
+    finally:
+        app.state.service.db.engine.dispose()
 out=root/'release';out.mkdir(exist_ok=True)
 target=out/'Cyber-Black-Box-Complete-Project.zip'
 # Only version-controlled source belongs in a release. This excludes local lab
@@ -26,6 +30,8 @@ selected = {root / name for name in tracked if name and not name.startswith('.pn
 selected.update({docs/'ingest.schema.json', docs/'openapi.json', docs/'RELEASE-ACCEPTANCE-2026-11-12.md', root/'scripts/audit_smoke.py', root/'scripts/start-kali-bridge.ps1', root/'Start-Kali-Log-Bridge.cmd', docs/'KALI-LOG-CONNECTION.md'})
 selected.update(path for path in (root/'web/dist').rglob('*') if path.is_file())
 selected.add(root/'web/src/motion.tsx')
+selected.add(root/'scripts/_isolated_runtime.py')
+selected.update({root/'tests/test_backend_audit.py', root/'tests/test_operations.py', root/'web/src/ui.test.tsx', docs/'AUDIT-2026-11-19.md'})
 selected.update({root/'cbb/lab.py', root/'tests/test_lab_workflow.py', docs/'FYP-PRESENTATION.md'})
 selected.update({root/'cbb/kali.py', root/'tests/test_kali_connection.py', docs/'KALI-PRESENTATION-2026-11-14.md'})
 if not (root/'web/dist/index.html').is_file():

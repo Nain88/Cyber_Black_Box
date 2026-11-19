@@ -5,18 +5,18 @@ root=Path(__file__).resolve().parents[1]
 os.chdir(root)
 (root/'work').mkdir(exist_ok=True)
 sys.path.insert(0,str(root))
-from cbb.config import Settings
+from scripts._isolated_runtime import isolated_settings, clean_environment
 from cbb.service import Service
 from cbb.cli import seed_demo
 from cbb.verify import verify_package
 with tempfile.TemporaryDirectory(prefix='cbb-acceptance-') as tmp:
  data=Path(tmp)/'data'
- service=Service(Settings(data=data,workers=False))
+ service=Service(isolated_settings(data,workers=False))
  login=seed_demo(service); public_key=service.deployment['public_key']; service.db.engine.dispose()
  with socket.socket() as sock:
   sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
  base=f'http://127.0.0.1:{port}'
- env={k:v for k,v in os.environ.items() if not k.startswith('CBB_')};env['CBB_PUBLIC_URL']=base
+ env=clean_environment();env['CBB_PUBLIC_URL']=base
  with open(root/'work/acceptance-server.log','w') as log:
   process=subprocess.Popen([sys.executable,'-m','cbb.cli','--data',str(data),'serve','--port',str(port)],env=env,stdout=log,stderr=log)
   try:

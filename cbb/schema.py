@@ -28,7 +28,7 @@ def parse_time(value):
 
 def normalize(wire, collector, evidence_id, received_at, raw_ref):
     raw=base64.b64decode(wire["raw_base64"],validate=True)
-    flags=[]; subject={}; details={}; severity=1; event_type=wire["event_type"]
+    flags=[]; subject={}; details={}; severity=1; event_type=wire["event_type"]; parser_version="1.0.0"
     def severity_number(value, default):
         try:
             if isinstance(value, bool) or not isinstance(value, (int, str)):
@@ -85,17 +85,33 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
         try:
             if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():raise ValueError("XML entities and DTDs are not allowed")
             root=ET.fromstring(raw)
+            parser_version="1.1.0"
+            messages=[]
             for e in root.iter():
-                if e.tag.endswith("Data") and e.attrib.get("Name"): details[e.attrib["Name"]]=(e.text or "")[:8192]
-                if e.tag.endswith("EventID"): details["event_id"]=e.text
-                if e.tag.endswith("Provider"):details["provider"]=e.attrib.get("Name","")
-                if e.tag.endswith("TimeCreated"): occurred=parse_time(e.attrib.get("SystemTime")) or occurred
+                tag=e.tag.rsplit("}",1)[-1]
+                if tag == "Data":
+                    value=(e.text or "")[:8192]
+                    if e.attrib.get("Name"):details[e.attrib["Name"]]=value
+                    elif value.strip():messages.append(value)
+                if tag == "Message" and e.text:details["message"]=e.text[:8192]
+                if tag == "EventID": details["event_id"]=e.text
+                if tag == "Provider":details["provider"]=e.attrib.get("Name","")
+                if tag == "TimeCreated": occurred=parse_time(e.attrib.get("SystemTime")) or occurred
+            # eventcreate writes its description as unnamed EventData/Data.
+            # Keep its bounded message searchable, with original XML untouched.
+            details["message"]=details.get("message") or details.get("Message") or " ".join(messages)[:8192]
             subject={"process":details.get("Image") or details.get("NewProcessName"),"process_guid":details.get("ProcessGuid"),"pid":details.get("ProcessId"),"parent":details.get("ParentImage"),"user":details.get("User") or details.get("SubjectUserName"),"dst_ip":details.get("DestinationIp"),"path":details.get("TargetFilename") or details.get("TargetObject")}
-            mappings={"4688":"process.create","1102":"log.clear","104":"log.clear"}
-            if details.get('provider') == 'Microsoft-Windows-Security-Auditing':
-                mappings.update({'4625':'auth.failure','4624':'auth.success','5157':'firewall.drop','5152':'firewall.drop'})
+            # Event IDs are provider-local. An application reusing 104/4688
+            # must not be classified as log clearing/process creation.
+            provider=details.get("provider", "").casefold()
+            mappings={}
+            if provider == "microsoft-windows-security-auditing":
+                mappings.update({'4688':'process.create','4625':'auth.failure','4624':'auth.success','5157':'firewall.drop','5152':'firewall.drop'})
                 if details.get('event_id') == '4625':severity=3
-            if "sysmon" in details.get("provider","").lower():mappings.update({"1":"process.create","3":"network.connect","11":"file.create","13":"registry.change"})
+            elif provider == "microsoft-windows-eventlog":
+                mappings.update({"1102":"log.clear","104":"log.clear"})
+            elif provider == "microsoft-windows-sysmon":
+                mappings.update({"1":"process.create","3":"network.connect","11":"file.create","13":"registry.change"})
             event_type=mappings.get(details.get("event_id"),event_type)
             if event_type=="log.clear":severity=4
         except (ET.ParseError, ValueError):flags.append("PARSE_ERROR")
@@ -113,4 +129,4 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
             flags.append("DELAYED_EVENT")
         elif elapsed < -30:
             flags.append("SOURCE_CLOCK_AHEAD")
-    return {"schema_version":"cbb.evidence/1.0","evidence_id":evidence_id,"collector_id":collector["id"],"asset_id":collector["asset_id"],"boot_id":wire["boot_id"],"source_seq":wire["source_seq"],"source_type":wire["source_type"],"event_type":event_type,"occurred_at":occurred,"original_timestamp":wire.get("original_timestamp"),"collected_at":wire["collected_at"],"received_at":received_at,"time_quality":{"parsed":occurred is not None},"severity":severity,"subject":subject,"summary":summary,"parser":{"name":wire["source_type"],"version":"1.0.0"},"raw":raw_ref,"provenance":{"source_cursor":wire.get("source_cursor",{})},"quality_flags":flags}
+    return {"schema_version":"cbb.evidence/1.0","evidence_id":evidence_id,"collector_id":collector["id"],"asset_id":collector["asset_id"],"boot_id":wire["boot_id"],"source_seq":wire["source_seq"],"source_type":wire["source_type"],"event_type":event_type,"occurred_at":occurred,"original_timestamp":wire.get("original_timestamp"),"collected_at":wire["collected_at"],"received_at":received_at,"time_quality":{"parsed":occurred is not None},"severity":severity,"subject":subject,"summary":summary,"parser":{"name":wire["source_type"],"version":parser_version},"raw":raw_ref,"provenance":{"source_cursor":wire.get("source_cursor",{})},"quality_flags":flags}
