@@ -70,12 +70,10 @@ def import_bytes(service, actor_id, case_id, name, source, fmt, content, provena
     if not content or len(content) > limit:
         raise DomainError("IMPORT_SIZE", "Import is empty or exceeds its size limit", 413)
     input_hash = sha(content)
-    col = imported_collector(service, actor_id, case_id, name, input_hash)
     records = content.splitlines(keepends=True) if fmt in {"jsonl", "text"} else [content]
     if len(records) > 100000:
         raise DomainError("IMPORT_COUNT", "Import exceeds 100,000 records", 413)
     # Freeze import observation time for idempotent re-import of exactly the same bytes.
-    collected_at = col["created_at"]
     events = []
     for number, raw in enumerate(records, 1):
         if not raw.strip():
@@ -111,7 +109,12 @@ def import_bytes(service, actor_id, case_id, name, source, fmt, content, provena
                 raise DomainError("IMPORT_XML", "Invalid event XML", 422)
             if root.tag.split("}")[-1] != "Event":
                 raise DomainError("IMPORT_XML", "Import one Event element per XML file; use the agent for event streams", 422)
-        events.append({"boot_id": "import:" + input_hash[:48], "source_seq": str(number), "source_type": source, "event_type": event_type, "collected_at": collected_at, "original_timestamp": timestamp, "raw_media_type": "application/json" if fmt == "jsonl" else "application/xml" if fmt == "xml" else "text/plain", "raw_base64": base64.b64encode(raw).decode(), "raw_sha256": sha(raw), "source_cursor": {"imported": True, "input_name": name, "input_sha256": input_hash, "record": number, **(provenance or {})}})
+        events.append({"boot_id": "import:" + input_hash[:48], "source_seq": str(number), "source_type": source, "event_type": event_type, "original_timestamp": timestamp, "raw_media_type": "application/json" if fmt == "jsonl" else "application/xml" if fmt == "xml" else "text/plain", "raw_base64": base64.b64encode(raw).decode(), "raw_sha256": sha(raw), "source_cursor": {"imported": True, "input_name": name, "input_sha256": input_hash, "record": number, **(provenance or {})}})
+    if not events:
+        raise DomainError("IMPORT_EMPTY", "No records found in the import", 422)
+    col = imported_collector(service, actor_id, case_id, name, input_hash)
+    for event in events:
+        event["collected_at"] = col["created_at"]
     result = seal_and_link(service, col, events, actor_id, case_id, "Authorized offline import: " + name)
     with service.db.tx() as c:
         service.audit(c, actor_id, "LOG_IMPORT_COMPLETED", case_id, "PARTIAL" if result["rejected"] or result["not_sealed"] else "SUCCESS", details={"name": name, "input_sha256": input_hash, "source": source, "preserved": result["preserved"], "rejected": len(result["rejected"]), "not_sealed": result["not_sealed"]})

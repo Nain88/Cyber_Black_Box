@@ -12,6 +12,7 @@ class Settings:
     secure_cookies: bool = field(default_factory=lambda: os.getenv("CBB_SECURE_COOKIES", "false").lower() == "true")
     admin_mfa_required: bool = field(default_factory=lambda: os.getenv("CBB_ADMIN_MFA_REQUIRED", "false").lower() == "true")
     workers: bool = field(default_factory=lambda: os.getenv("CBB_WORKERS", "true").lower() == "true")
+    analysis_delay_seconds: int = field(default_factory=lambda: int(os.getenv("CBB_ANALYSIS_DELAY_SECONDS", "120")))
     segment_bytes: int = 64 * 1024 * 1024
     checkpoint_seconds: int = 300
     export_timeout_seconds: int = 1800
@@ -40,6 +41,8 @@ class Settings:
     allow_self_approval: bool = field(default_factory=lambda: os.getenv("CBB_ALLOW_SELF_APPROVAL", "false").lower() == "true")
 
     def prepare(self):
+        if self.analysis_delay_seconds < 1:
+            raise ValueError("Analysis delay threshold must be a positive number of seconds")
         self.data.mkdir(parents=True, exist_ok=True)
         for name in ("archive", "inbox", "keys", "exports", "uploads", "models", "checkpoints", "artifacts"):
             (self.data / name).mkdir(exist_ok=True)

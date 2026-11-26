@@ -9,9 +9,10 @@ export function LiveMonitor(){
  const alerts=useData<Row[]>('/alerts?order=newest',paused?0:5000);
  const runtime=useData(admin?'/runtime/status':null,paused?0:30000);
  const collectors=useData<Row[]>(admin?'/collectors':null,paused?0:15000);
+ const health=useData(admin?'/health/evidence':null,paused?0:15000);
  const recent:Row[]=events.data?.items||[];const open=(alerts.data||[]).filter(r=>r.status==='NEW');
  const rt=runtime.data;
- const reloadAll=()=>{events.reload();alerts.reload();runtime.reload();collectors.reload()};
+ const reloadAll=()=>{events.reload();alerts.reload();runtime.reload();collectors.reload();health.reload()};
  const monitor=events.error?'Stale':paused?'Paused':'Live';
  return <><PageHead eyebrow="Workspace" title="Live monitor" description="Latest preserved observations, threat indicators and sensor coverage. Updates every five seconds while visible." actions={<><button className="secondary" onClick={()=>setPaused(!paused)}>{paused?<Play size={16}/>:<Pause size={16}/>} {paused?'Resume':'Pause'}</button><button className="primary" onClick={reloadAll}><RefreshCw size={16}/> Refresh</button></>}/>
   <Notice>Capture covers configured sources only. Suricata sees its selected interface; encrypted payloads and unseen devices remain outside coverage. A firewall drop or an alert is an observation to investigate, not proof of a successful attack.</Notice>
@@ -20,6 +21,14 @@ export function LiveMonitor(){
    <button className="stat-card" onClick={()=>go('alerts')}><div className="stat-top"><span>New alerts</span><span className={'stat-icon '+(open.length?'warn':'ok')}><Bell size={18}/></span></div><strong>{alerts.error?'—':open.length}</strong><div>Review indicators <ArrowRight size={14}/></div></button>
    <div className="stat-card"><div className="stat-top"><span>Observations in window</span><span className="stat-icon"><Activity size={18}/></span></div><strong>{events.data?recent.length:'—'}</strong><small>Latest <Stamp value={recent[0]?.received_at}/></small></div>
   </div>
+  {admin&&<Panel title="Evidence health" subtitle="Active issues clear automatically when current health recovers."><State state={health}>{health.data&&<>
+   <div className="panel-content actions">
+    <Badge tone={health.data.staged_receipts?'amber':health.data.last_sealed_received_at?'green':'slate'}>{health.data.staged_receipts?health.data.staged_receipts+' awaiting sealing':health.data.last_sealed_received_at?'Evidence sealed':'No sealed evidence'}</Badge>
+    <Badge tone={health.data.analysis_delayed?'amber':'slate'}>{health.data.analysis_delayed?'Analysis delayed':'Analysis within threshold'}</Badge>
+    <span className="muted">{health.data.pending_analysis} pending analysis jobs · {health.data.analysis_delay_seconds}s delay threshold</span>
+   </div>
+   <Table rows={health.data.issues} columns={[{label:'Issue',key:'issue'},{label:'Scope',key:'scope'},{label:'Details',key:'detail'}]} empty="No active evidence health issues."/>
+  </>}</State></Panel>}
   {admin&&<State state={runtime}>{rt&&<div className="integration-grid">
    {rt.firewall&&<Panel title="Windows Firewall"><div className="panel-content"><Badge tone={rt.firewall.state==='ENABLED'?'green':'amber'}>{rt.firewall.state||'UNKNOWN'}</Badge><p className="tool-version">Connection logging: {rt.firewall.logging_enabled?'enabled':'unavailable / not fully enabled'}</p><small className="muted">Checked <Stamp value={rt.checked_at}/></small>{rt.firewall.profiles&&<details><summary>Effective profiles</summary><StructuredView value={rt.firewall.profiles}/></details>}</div></Panel>}
    {rt.ollama&&<Panel title="Local AI"><div className="panel-content"><Badge>{rt.ollama.state||'UNKNOWN'}</Badge><p className="tool-version">{rt.ollama.model||'No model configured'}</p><small className="muted">Availability does not certify model accuracy. Review generated advice in Evidence assistant.</small></div></Panel>}

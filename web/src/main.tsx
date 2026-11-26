@@ -163,13 +163,18 @@ function Evidence({params}:{params:URLSearchParams}){
  useEffect(()=>{if(detail&&!evidenceDialog.current?.open)evidenceDialog.current?.showModal();},[detail]);
  useEffect(()=>setSelected([]),[path]);
  const closeDetail=()=>go(routeQuery('evidence',query));
+ const refreshEvidence=()=>{
+  setSelected([]);
+  if(query.cursor||query.snapshot)go(routeQuery('evidence',{...query,cursor:'',snapshot:''}));
+  else state.reload();
+ };
  const allSelected=!!visible.length&&visible.every(r=>selected.includes(r.id));
- return <><PageHead eyebrow="Investigation" title="Evidence explorer" description="Search preserved observations. Every record links back to its original bytes." actions={<button className="secondary" onClick={state.reload}><RefreshCw size={16}/> Refresh</button>}/>
+ return <><PageHead eyebrow="Investigation" title="Evidence explorer" description="Search preserved observations. Every record links back to its original bytes." actions={<button className="secondary" onClick={refreshEvidence}><RefreshCw size={16}/> Refresh results</button>}/>
   <Panel><form className="search-filters" onSubmit={e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.currentTarget).entries()) as Record<string,string>;go(routeQuery('evidence',{...v,start:toUtcIso(v.start),end:toUtcIso(v.end)}))}} key={path}>
    <div className="filter-row"><div className="search-box"><Search size={18}/><input aria-label="Search evidence" name="q" defaultValue={query.q} placeholder="Search summary, event type, evidence ID or SHA-256…"/></div>
     <select name="source" defaultValue={query.source} aria-label="Source"><option value="">All sources</option>{sources.map(s=><option key={s}>{s}</option>)}</select>
     <input name="asset" aria-label="Asset ID" placeholder="Asset ID" defaultValue={query.asset}/></div>
-   <div className="filter-row"><label className="inline-label">From (UTC) <input type="datetime-local" name="start" defaultValue={query.start.replace('Z','').slice(0,16)} aria-label="Received from, UTC"/></label><label className="inline-label">To (UTC) <input type="datetime-local" name="end" defaultValue={query.end.replace('Z','').slice(0,16)} aria-label="Received until, UTC"/></label><button className="primary" type="submit"><Search size={15}/> Search</button><button className="text-button" type="button" onClick={()=>go('evidence')}>Clear filters</button></div>
+   <div className="filter-row"><label className="inline-label">From (UTC) <input type="datetime-local" name="start" defaultValue={query.start.replace('Z','').slice(0,16)} aria-label="Received from, UTC"/></label><label className="inline-label">To (UTC) <input type="datetime-local" name="end" defaultValue={query.end.replace('Z','').slice(0,16)} aria-label="Received until, UTC"/></label><button className="primary" type="submit"><Search size={15}/> Search</button><button className="text-button" type="button" onClick={e=>{e.currentTarget.form?.reset();setSeverity('');setSelected([]);go('evidence')}}>Clear filters</button></div>
   </form></Panel>
   <div className="results-toolbar"><div><strong>{visible.length}</strong> records on this page {state.data&&<span className="muted">· frozen at sequence {state.data.snapshot}</span>}</div><div className="actions"><select aria-label="Filter severity on this page" value={severity} onChange={e=>setSeverity(e.target.value)}><option value="">All severities</option>{[5,4,3,2,1].map(n=><option value={n} key={n}>{severityLabels[n]}</option>)}</select>{roleWrite(session.user)&&<button className="secondary" disabled={!selected.length} onClick={()=>modal('Add selected evidence to a case',<AddToCase ids={selected}/>)}><FolderOpen size={15}/> Add {selected.length||''} to case</button>}</div></div>
   <Panel><State state={state}><Table rows={visible} onRow={r=>go(routeQuery('evidence',{...query,id:r.id}))} columns={[

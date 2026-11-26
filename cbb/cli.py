@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import sys
 import time
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from .config import Settings
@@ -71,6 +72,9 @@ def main(argv=None):
     s.add_parser("demo",help="Initialize synthetic demo in an EMPTY data directory")
     v=s.add_parser("verify",help="Verify local evidence and optional external checkpoint");v.add_argument("--checkpoint",type=Path)
     v=s.add_parser("verify-package",help="Offline ZIP verification with separately trusted signing key");v.add_argument("package",type=Path);v.add_argument("--public-key",required=True)
+    v.add_argument("--trusted-checkpoint", type=Path, help="Separately retained signed checkpoint for this export")
+    v.add_argument("--witness-bundle", type=Path, help="Separately obtained checkpoint and signed witness receipt")
+    v.add_argument("--witness-public-key", help="Pinned public key of the witness")
     vr=s.add_parser("verify-report",help="Verify a standalone PDF, DOCX or JSON against its detached signature")
     vr.add_argument("report",type=Path);vr.add_argument("signature",type=Path);vr.add_argument("--public-key",required=True)
     s.add_parser("checkpoint",help="Create a signed checkpoint while server is stopped")
@@ -92,7 +96,23 @@ def main(argv=None):
             return 0 if valid else 2
         if a.command=="verify-package":
             from .verify import verify_package
-            result=verify_package(a.package,a.public_key);print(json.dumps(result,indent=2));return 0 if result["status"]=="VALID" else 2
+            from .crypto import strict_json
+            from cryptography.exceptions import InvalidSignature
+            try:
+                retained = strict_json(a.trusted_checkpoint.read_bytes()) if a.trusted_checkpoint else None
+                bundle = strict_json(a.witness_bundle.read_bytes()) if a.witness_bundle else None
+                if (a.trusted_checkpoint and not isinstance(retained, dict)) or (a.witness_bundle and not isinstance(bundle, dict)):
+                    raise ValueError("Trust material must be a JSON object")
+                result = verify_package(
+                    a.package, a.public_key,
+                    trusted_checkpoint=retained,
+                    witness_bundle=bundle,
+                    witness_public_key=a.witness_public_key,
+                )
+            except (InvalidSignature, OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration, zipfile.BadZipFile):
+                print(json.dumps({"status": "INVALID", "reason": "Package or supplied trust material could not be verified"}))
+                return 2
+            print(json.dumps(result,indent=2));return 0 if result["status"]=="VALID" else 2
         if a.command=="schema":
             from .schema import WireEvent
             print(json.dumps(WireEvent.model_json_schema(),indent=2));return 0

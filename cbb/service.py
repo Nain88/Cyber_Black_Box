@@ -178,6 +178,9 @@ class Service:
                     c.execute(update(D.chains).where(D.chains.c.id==chain["id"]).values(head_sequence=seq,head_hash=digest))
                     c.execute(update(D.receipts).where(D.receipts.c.id==receipt["id"]).values(state="SEALED"))
                     self.audit(c,collector["id"],"EVIDENCE_SEALED",receipt["evidence_id"],details={"sequence":str(seq)})
+                    if env["event_type"] in {"audit.policy.change", "file.modified"}:
+                        item = row(c, select(D.evidence).where(D.evidence.c.id == receipt["evidence_id"]))
+                        self.record_indicator(c, item, env, specific_only=True)
                     # Publish sensor indicators in the sealing transaction so a
                     # queue of historical correlation jobs cannot hide a fresh match.
                     if env['source_type'] in {'suricata.eve','windows.firewall'}:
@@ -332,12 +335,27 @@ class Service:
         jid=uid();c.execute(D.jobs.insert().values(id=jid,kind=kind,state="QUEUED",actor_id=actor,case_id=case_id,payload=dumps(payload),operation_key=key,progress=0,attempts=0,next_attempt=0,created_at=now(),updated_at=now()))
         return jid
 
-    def record_indicator(self,c,item):
+    def record_indicator(self,c,item,env=None,*,specific_only=False):
         event_type=item['event_type']
-        if item['severity']<3 and event_type not in {'log.clear','registry.change','auth.failure','yara.match','network.alert'}:return
+        rule = None
+        if event_type in {"audit.policy.change", "file.modified"}:
+            subject = (env if env is not None else loads(item["envelope"]))["subject"]
+            if (item["source_type"] == "windows.event" and event_type == "audit.policy.change"
+                    and subject.get("event_provider") == "Microsoft-Windows-Security-Auditing"
+                    and subject.get("event_id") == "4719"):
+                rule = ("WIN-AUDIT-POLICY/1.0", "Windows Security Auditing event 4719 reported a system audit policy change.")
+            elif (item["source_type"] == "fim" and event_type == "file.modified" and subject.get("path")
+                  and subject.get("action") == "modified" and subject.get("previous_sha256")
+                  and subject.get("sha256") and subject["previous_sha256"] != subject["sha256"]):
+                rule = ("FIM-CONTENT-CHANGED/1.0", "The configured file monitor reported different previous and current content hashes.")
+            if specific_only and not rule:
+                return
+        if not rule and item['severity']<3 and event_type not in {'log.clear','registry.change','auth.failure','yara.match','network.alert'}:return
         key='rule-v1:'+item['id']
         if row(c,select(D.alerts.c.id).where(D.alerts.c.dedup_key==key)):return
-        c.execute(D.alerts.insert().values(id=uid(),evidence_id=item['id'],asset_id=item['asset_id'],rule_id='rules-v1/'+event_type,severity=item['severity'],risk=item['severity']*20,explanation=f"{item['summary']} ({event_type}). Inspect original evidence and source context.",status='NEW',components=dumps({'severity':item['severity']/5,'model':'not_scored'}),created_at=now(),dedup_key=key))
+        rule_id, explanation = rule or ('rules-v1/'+event_type, f"{item['summary']} ({event_type}). Inspect original evidence and source context.")
+        severity = max(3, item["severity"]) if rule else item["severity"]
+        c.execute(D.alerts.insert().values(id=uid(),evidence_id=item['id'],asset_id=item['asset_id'],rule_id=rule_id,severity=severity,risk=severity*20,explanation=explanation,status='NEW',components=dumps({'severity':severity/5,'model':'not_scored'}),created_at=now(),dedup_key=key))
 
     def analyze(self,evidence_id):
         with self.db.tx() as c:
@@ -345,7 +363,7 @@ class Service:
             etype=item["event_type"]
             from .detection import firewall_burst
             firewall_burst(self,c,item,env)
-            self.record_indicator(c,item)
+            self.record_indicator(c,item,env)
             if etype.startswith(("file.","fim.","network.")) and item["occurred_at"]:
                 current=datetime.fromisoformat(item["occurred_at"].replace("Z","+00:00"))
                 candidates=rows(c,select(D.evidence).where(and_(D.evidence.c.asset_id==item["asset_id"],D.evidence.c.event_type=="process.create")).order_by(D.evidence.c.sequence.desc()).limit(200))

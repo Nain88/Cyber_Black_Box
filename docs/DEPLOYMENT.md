@@ -27,6 +27,24 @@ The cloud signer runs on a separate service with its own volume. Same-host separ
 
 On an independently administered machine, run `python -m cbb.witness --data witness-data --trusted-key <deployment-public-key>`. Its default listener is 127.0.0.1:8767; publish through an HTTPS proxy. Obtain the witness public key from `/public-key`, verify it out of band, and set `CBB_WITNESS_URL`, `CBB_WITNESS_PUBLIC_KEY` and `CBB_WITNESS_INDEPENDENT=true` on the app. Start witnessing at checkpoint 1. The app submits pending checkpoints in order. A witness on the same laptop is a functional demonstration, not an independent trust domain.
 
+For offline export review, read `deployment_id` and `checkpoint_seq` from the export's `checkpoint.json` payload. Fetch the matching bundle directly from the independently administered witness at `/checkpoints/{deployment_id}/by-sequence/{checkpoint_seq}`. Keep both public keys from trusted setup records. Both of the following options require the exact checkpoint committed by the export.
+
+```powershell
+python -m cbb.cli verify-package case.zip --public-key "$deploymentKey" --witness-bundle witness.json --witness-public-key "$witnessKey"
+python -m cbb.cli verify-package case.zip --public-key "$deploymentKey" --trusted-checkpoint retained-checkpoint.json
+```
+
+The verifier reports whether the supplied checkpoint matched or the witness receipt was verified. Assess freshness and administrative independence from how and when you obtained the witness material.
+
+## Two browser demo and evidence health
+
+1. Sign in to the same Cyber Black Box address in two browsers. Use a disposable case and administrator access on the import side.
+2. In the second browser, open **Collectors → Import**, select the case, and select **Fill synthetic demo record**. Copy its `CBB-DEMO-` marker, then select **Import and preserve records**.
+3. In the original browser, search for that marker in **Evidence Explorer**. Refresh results if you already had a frozen view. Open the record to inspect its `lab.fixture` source and preserved original bytes.
+4. As an administrator, open **Live monitor → Evidence health** to see sealing and analysis separately. Current issues clear on refresh after recovery. A heartbeat alert applies to a previously reporting active collector after 90 seconds. Set `CBB_ANALYSIS_DELAY_SECONDS` before starting the app to change the analysis-age threshold from its default of 120 seconds.
+
+The demo record exercises import, preservation, and investigation. The two new detection rules match Windows Security Auditing event 4719 and a file monitor report of changed content hashes. Their alerts refer to the sealed observation that triggered the match.
+
 A signed checkpoint lost between external signing and database commit fails closed on retry. Preserve both volumes and reconcile the recorded signed checkpoint before resuming. Never reset signer sequence state to conceal a fork.
 
 ## Object storage

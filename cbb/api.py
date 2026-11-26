@@ -711,6 +711,12 @@ def create_app(settings=None):
     def lab_recover(rid:str,u=Depends(admin)):
         return lab.recover_run(u,rid)
 
+    @app.get("/api/v1/health/evidence")
+    def live_evidence_health(u=Depends(admin)):
+        from .evidence_health import evidence_health
+        with service.db.read() as c:
+            return evidence_health(c, service.settings.analysis_delay_seconds)
+
     @app.get("/api/v1/health/pipeline")
     def pipeline_health(u=Depends(admin)):
         with service.db.read() as c:

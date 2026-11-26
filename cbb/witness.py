@@ -47,6 +47,17 @@ def create_witness(data=None, trusted_key=None, deployment_id=None):
             raise HTTPException(404, "No witnessed checkpoint for this deployment")
         return {"checkpoint": json.loads(previous["document"]), "receipt": json.loads(previous["receipt"])}
 
+    @app.get("/checkpoints/{deployment}/by-sequence/{sequence}")
+    def by_sequence(deployment: str, sequence: int):
+        if not 1 <= sequence <= 2**63 - 1:
+            raise HTTPException(422, "Invalid checkpoint sequence")
+        with lock:
+            item = db.execute("SELECT document,receipt FROM checkpoints WHERE deployment=? AND sequence=?",
+                              (deployment, sequence)).fetchone()
+        if not item:
+            raise HTTPException(404, "No witnessed checkpoint at this sequence")
+        return {"checkpoint": json.loads(item["document"]), "receipt": json.loads(item["receipt"])}
+
     @app.post("/checkpoints")
     async def checkpoint(request: Request):
         body_bytes = bytearray()

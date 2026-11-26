@@ -76,6 +76,11 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
         else:
             subject={k:data.get(k) for k in ("user","process","process_guid","pid","parent","path","src_ip","dst_ip","dst_port","action") if k in data}
             severity=max(0,min(5,severity_number(data.get("severity",1), 1)))
+            if wire["source_type"] == "fim":
+                for field in ("sha256", "previous_sha256"):
+                    value = data.get(field)
+                    if isinstance(value, str) and len(value) == 64 and all(ch in "0123456789abcdef" for ch in value):
+                        subject[field] = value
             if wire["source_type"]=="linux.journal":
                 message=str(data.get("MESSAGE",data.get("message","")))
                 if "Failed password" in message or "authentication failure" in message:event_type="auth.failure";severity=3
@@ -113,6 +118,16 @@ def normalize(wire, collector, evidence_id, received_at, raw_ref):
             elif provider == "microsoft-windows-sysmon":
                 mappings.update({"1":"process.create","3":"network.connect","11":"file.create","13":"registry.change"})
             event_type=mappings.get(details.get("event_id"),event_type)
+            system = root.find("{*}System")
+            if wire["source_type"] == "windows.event" and system is not None:
+                provider_node = system.find("{*}Provider")
+                event_id = system.findtext("{*}EventID")
+                if provider_node is not None and provider_node.get("Name", "").casefold() == "microsoft-windows-security-auditing" and event_id == "4719":
+                    event_type = "audit.policy.change"
+                    severity = max(severity, 3)
+                    subject["event_provider"] = "Microsoft-Windows-Security-Auditing"
+                    subject["event_id"] = "4719"
+                    parser_version = "1.2.0"
             if event_type=="log.clear":severity=4
         except (ET.ParseError, ValueError):flags.append("PARSE_ERROR")
     else:

@@ -743,7 +743,7 @@ button.stat-card:hover { border-color: var(--border-strong); background: var(--s
 
 /* ---------- Responsive: one system ---------- */
 @media (max-width: 1200px) {
-  .overview-grid, .overview-bottom, .chart-row { grid-template-columns: 1fr; }
+  .overview-grid, .overview-bottom, .chart-row { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 1024px) {
   .sidebar { transform: translateX(-100%); transition: transform .22s ease; box-shadow: none; }
