@@ -2,7 +2,6 @@ import json
 from types import SimpleNamespace
 import pytest
 from cbb.kali import connection, ssh_base, check_connection
-from test_api import app_client
 
 
 def write_config(tmp_path, value):
@@ -34,13 +33,3 @@ def test_connection_check_validates_response(tmp_path,monkeypatch):
     assert check_connection(tmp_path)['reachable']
     monkeypatch.setattr('cbb.kali.subprocess.run',lambda *a,**kw:SimpleNamespace(returncode=1,stdout=''))
     with pytest.raises(ValueError,match='SSH check failed'):check_connection(tmp_path)
-
-
-def test_readiness_endpoint_auth_and_error(app_client,monkeypatch):
-    app,c=app_client
-    monkeypatch.setattr(app.state.lab,'available',lambda:True)
-    monkeypatch.setattr('cbb.lab.subprocess.run',lambda *a,**kw:SimpleNamespace(returncode=0,stdout='linux'))
-    assert c.post('/api/v1/lab/check',json={}).json()['reachable']
-    assert c.post('/api/v1/lab/check',json={},headers={'x-csrf-token':'wrong'}).status_code==403
-    monkeypatch.setattr(app.state.lab,'available',lambda:False)
-    assert c.post('/api/v1/lab/check',json={}).status_code==422

@@ -1,13 +1,12 @@
-# Cyber Black Box - complete local deployment in four containers.
+# Cyber Black Box - local evidence deployment in three containers.
 #
 #   db     PostgreSQL 17 evidence/case database
 #   app    API + web console + background workers  -> http://localhost:8765
 #   trust  isolated Ed25519 signer + checkpoint witness
-#   lab    attack-simulation sender for the Lab page
 #
 # Start with Start-Docker.cmd (Windows), which creates
 # .env with random secrets on first run. Manually: docker compose build app
-# then docker compose up -d (one image is shared by app, trust and lab).
+# then docker compose up -d (one image is shared by app and trust).
 name: cyber-black-box
 
 x-hardening: &hardening
@@ -65,10 +64,6 @@ services:
       CBB_WITNESS_URL: http://trust:8767
       CBB_WITNESS_AUTO_TRUST: "true"
       CBB_WITNESS_INDEPENDENT: "false"
-      CBB_LAB_SENDER_URL: http://lab:8780
-      CBB_LAB_SENDER_TOKEN: ${CBB_LAB_SENDER_TOKEN:?Run Start-Docker.cmd to create .env}
-      CBB_LAB_BIND: 0.0.0.0
-      CBB_LAB_CALLBACK_HOST: app
       CBB_ALLOW_SELF_APPROVAL: "false"
       # Optional: local AI with Ollama running on the Windows host.
       CBB_OLLAMA_URL: ${CBB_OLLAMA_URL:-http://host.docker.internal:11434}
@@ -79,36 +74,15 @@ services:
       trust: {condition: service_healthy}
     volumes: [evidence:/data]
     tmpfs: ["/tmp:size=300m,mode=1777"]
-    networks: [frontend, backend, lab]
+    networks: [frontend, backend]
     mem_limit: 2g
     cpus: 2
-
-  lab:
-    <<: *hardening
-    image: cyber-black-box:latest
-    pull_policy: never
-    command: [python, -m, cbb.labsender, --host, 0.0.0.0, --port, "8780"]
-    environment:
-      CBB_LAB_SENDER_TOKEN: ${CBB_LAB_SENDER_TOKEN}
-      CBB_LAB_ALLOWED_TARGETS: app
-    tmpfs: [/tmp:mode=1777]
-    networks: [lab]
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8780/health/live',timeout=3)"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    pids_limit: 64
-    mem_limit: 192m
-    cpus: 0.5
 
 networks:
   # Host access to the web console (published on 127.0.0.1 only).
   frontend: {}
-  # db and trust are unreachable from the host and from the lab sender.
+  # db and trust live on the internal network.
   backend: {internal: true}
-  # Isolated attack-simulation segment: only app and lab.
-  lab: {internal: true}
 
 volumes:
   database:

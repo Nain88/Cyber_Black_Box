@@ -46,10 +46,21 @@ For a newly extracted copy: run `powershell -ExecutionPolicy Bypass -File .\scri
 8. Select **Back up now**. Watch the job until COMPLETE. Then inspect Cloud archive → Verified objects. A queued job is not a verified copy.
 9. Select **Restore check** on an object. A completed check places bytes under `data/restore-staging/<unique-id>/`; compare the reported SHA-256. Original evidence is not overwritten.
 10. Enable automatic scheduling after your initial backup/restore succeeds. Minimum interval is 5 minutes. Account quota, connectivity and available local disk can delay or fail transfers; jobs show errors/retries.
+11. To use rolling retention, set **Log copy retention → Move log copies to Rubbish Bin after 5 days**. The period begins when Cyber Black Box successfully uploads and verifies a new log segment or segment manifest. Earlier cloud backups, reports, checkpoints, artifacts, and all local originals remain available. A log segment with active evidence in a case on retention hold is excluded while the hold is active.
+
+The background worker moves eligible files into a dedicated MEGA Rubbish Bin folder and writes a custody entry for each confirmed move. Jobs process expiry in batches, so outages or large queues can delay a move. The app does not empty the Rubbish Bin. Final purge and storage reclamation follow the MEGA account's settings.
+
+The native deployment owner can also configure the policy from the terminal while the server is stopped. Pass the existing data directory explicitly and run as the same OS user as the signed-in MEGAcmd session.
+
+```powershell
+python -m cbb.cli --data <existing-data-directory> configure-mega --interval-minutes 60 --expire-logs --queue-backup
+```
+
+Start the server with the same data directory to process the queued job. The command keeps the MEGA destination already configured for that deployment.
 
 The server invokes the official executable with argument arrays, without a command shell. Windows defaults to `%LOCALAPPDATA%\MEGAcmd\MegaClient.exe`; override its directory with `CBB_MEGACMD_DIR` when necessary. Linux uses installed `mega-*` commands under the same service user/session. Credentials are managed by MEGAcmd, not copied into application settings.
 
-Backup includes closed raw segments, their canonical-envelope manifests, acquisition/PCAP artifacts, case-report packages, signed checkpoints, and a snapshot of cases, links, notes, custody, assets and AI outputs. The signed inventory records hashes and remote paths. New bytes arriving after the snapshot are covered by later runs. Previously verified objects are not downloaded on every run; timestamps show the last check, and Restore check explicitly rechecks them.
+Backup includes closed raw segments, their canonical-envelope manifests, acquisition/PCAP artifacts, case-report packages, signed checkpoints, and a compressed JSON snapshot of cases, links, notes, custody, assets and AI outputs. The signed inventory records hashes and remote paths. New bytes arriving after the snapshot are covered by later runs. Previously verified objects are not downloaded on every run; timestamps show the last check, and Restore check explicitly rechecks them.
 
 MEGA is not WORM storage. A cloud-account holder can alter/delete backups. Keep the verification public key separately and protect signing keys. The MEGA archive deliberately excludes private keys, collector credentials, login records and the live database. It is an evidence archive, not a complete application restore. Use the existing offline `cbb backup` / `restore` workflow (or PostgreSQL procedures in DEPLOYMENT.md) for consistent database/key recovery. Do not synchronize deletion of evidence to the remote folder.
 

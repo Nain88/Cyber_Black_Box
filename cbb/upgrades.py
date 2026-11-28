@@ -1,25 +1,18 @@
 """Authenticated integration, archival and derived-analysis endpoints."""
 import os
-import re
+from datetime import datetime, timedelta, timezone
 from importlib.metadata import version, PackageNotFoundError
 from fastapi import Depends, Query
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, update, and_, func
 from . import db as D
 from .crypto import now, dumps, loads
 from .service import DomainError, row, rows
-from .cloud import settings
+from .cloud import MegaPolicy, queue_backup, save_policy, settings
 from .tooling import mega_command, tool_probe
 
 _live_seen={}
-
-class MegaPolicy(BaseModel):
-    model_config=ConfigDict(extra="forbid",strict=True)
-    enabled:bool=False
-    automatic:bool=False
-    interval_minutes:int=Field(default=15,ge=5,le=1440)
-    remote_root:str=Field(default="/CyberBlackBox",max_length=180)
 
 class AnalysisRequest(BaseModel):
     model_config=ConfigDict(extra="forbid")
@@ -58,6 +51,37 @@ def register_upgrade_routes(app,service,user,admin,investigator):
                 service.audit(c,u['id'],'LIVE_EVIDENCE_VIEW','live-monitor',details={'returned_ids':returned,'source':source})
             return {'checked_at':now(),'items':items,'scope':'All evidence for investigators; assigned case evidence for other roles','window_limit':limit}
 
+    @app.get("/api/v1/live/volume")
+    def live_volume(source: str = Query("", max_length=40), u=Depends(user)):
+        checked = datetime.now(timezone.utc)
+        start = checked.replace(second=0, microsecond=0) - timedelta(minutes=29)
+        buckets = {
+            (start + timedelta(minutes=offset)).isoformat(timespec="minutes")[:16]:
+                {"windows": 0, "linux": 0, "other": 0}
+            for offset in range(30)
+        }
+        minute = func.substr(D.evidence.c.received_at, 1, 16)
+        query = select(minute.label("minute"), D.evidence.c.source_type, func.count().label("count"))
+        query = query.where(
+            D.evidence.c.received_at >= start.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            D.evidence.c.received_at <= checked.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        )
+        scope = service.scope_evidence(u)
+        if scope is not None:
+            query = query.where(scope)
+        if source:
+            query = query.where(D.evidence.c.source_type == source)
+        with service.db.read() as c:
+            for result in rows(c, query.group_by(minute, D.evidence.c.source_type)):
+                kind = result["source_type"]
+                series = ("windows" if kind in {"windows.event", "windows.firewall"}
+                          else "linux" if kind == "linux.journal" else "other")
+                buckets[result["minute"]][series] += result["count"]
+        return {
+            "checked_at": checked.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "buckets": [{"minute": key + ":00Z", **values} for key, values in buckets.items()],
+        }
+
     @app.get("/api/v1/integrations")
     def integrations(u=Depends(admin)):
         packages={}
@@ -80,36 +104,27 @@ def register_upgrade_routes(app,service,user,admin,investigator):
     def get_policy(u=Depends(admin)):return settings(service)
 
     @app.put("/api/v1/cloud/mega/settings")
-    def save_policy(body:MegaPolicy,u=Depends(admin)):
-        if not re.fullmatch(r"/[A-Za-z0-9_/-]{1,179}",body.remote_root) or ".." in body.remote_root:raise DomainError("MEGA_PATH","Use an absolute folder with letters, digits, slash, dash or underscore",422)
-        if body.automatic and not body.enabled:raise DomainError("MEGA_DISABLED","Enable backup before automatic scheduling",422)
-        with service.db.tx() as c:
-            old=row(c,select(D.config).where(D.config.c.id=="mega-policy"))
-            values={"value":dumps(body.model_dump()),"version":old["version"]+1 if old else 1,"updated_at":now()}
-            if old:c.execute(update(D.config).where(D.config.c.id=="mega-policy").values(**values))
-            else:c.execute(D.config.insert().values(id="mega-policy",**values))
-            service.audit(c,u["id"],"MEGA_POLICY_UPDATED","mega-policy",details=body.model_dump())
-        return body.model_dump()
+    def set_mega_policy(body: MegaPolicy, u=Depends(admin)):
+        return save_policy(service, body, u["id"])
 
     @app.post("/api/v1/cloud/mega/backup")
     def backup(u=Depends(admin)):
-        if not settings(service)["enabled"]:raise DomainError("MEGA_DISABLED","Enable MEGA in backup settings first",422)
-        with service.db.tx() as c:
-            old=row(c,select(D.jobs).where(and_(D.jobs.c.kind=="mega-backup",D.jobs.c.state.in_(["QUEUED","RUNNING"]))))
-            if old:return {"job_id":old["id"]}
-            job=service.create_job(c,"mega-backup",u["id"],{"actor_id":u["id"]})
-            service.audit(c,u["id"],"MEGA_BACKUP_REQUESTED",job)
-        return {"job_id":job}
+        return {"job_id": queue_backup(service, u["id"])}
 
     @app.get("/api/v1/cloud/objects")
     def objects(u=Depends(admin)):
-        with service.db.read() as c:return rows(c,select(D.cloud_objects).order_by(D.cloud_objects.c.verified_at.desc()).limit(500))
+        query = select(D.cloud_objects, D.cloud_log_retention.c.expires_at, D.cloud_log_retention.c.expired_at)
+        query = query.outerjoin(D.cloud_log_retention, D.cloud_log_retention.c.object_id == D.cloud_objects.c.id)
+        with service.db.read() as c:
+            return rows(c, query.order_by(D.cloud_objects.c.verified_at.desc()).limit(500))
 
     @app.post("/api/v1/cloud/objects/{object_id}/restore-check")
     def restore_check(object_id:str,u=Depends(admin)):
         with service.db.tx() as c:
             obj=row(c,select(D.cloud_objects).where(D.cloud_objects.c.id==object_id))
             if not obj:raise DomainError("NOT_FOUND","Backup object not found",404)
+            if obj["state"] == "EXPIRED":
+                raise DomainError("MEGA_EXPIRED", "This MEGA log copy expired. Open the preserved local evidence.", 409)
             job=service.create_job(c,"mega-restore-check",u["id"],{"object_id":object_id,"actor_id":u["id"]})
             service.audit(c,u["id"],"MEGA_RESTORE_CHECK_REQUESTED",object_id)
         return {"job_id":job}

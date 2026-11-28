@@ -344,23 +344,62 @@ class Agent:
     def windows_events(self):
         if os.name != "nt" or not self.config.get("enable_events"):
             return
+        errors = []
         for channel in self.configuration.get("channels", []):
-            cursor_key = "windows:" + channel
-            cursor = self.spool.get(cursor_key, {})
-            record = int(cursor.get("record_id", 0))
-            encoded_channel = base64.b64encode(channel.encode()).decode()
-            script = "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);$channel=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded_channel + "'));"
-            script += f"$record=[long]{record};try{{if($record -gt 0){{$events=@(Get-WinEvent -LogName $channel -FilterXPath \"*[System[EventRecordID > $record]]\" -Oldest -MaxEvents 100 -ErrorAction Stop)}}else{{$events=@(Get-WinEvent -LogName $channel -MaxEvents 100 -ErrorAction Stop | Sort-Object RecordId)}};$out=@($events | ForEach-Object {{@{{record_id=[string]$_.RecordId;xml=$_.ToXml()}}}});ConvertTo-Json -InputObject $out -Compress -Depth 5}}catch{{if($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*'){{'[]'}}else{{throw}}}}"
-            encoded = base64.b64encode(script.encode("utf-16-le")).decode()
-            result = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            if result.returncode:
-                raise RuntimeError("Windows Event Log query failed: " + result.stderr.decode(errors="replace")[:400])
-            if len(result.stdout) > 10 * 1024 * 1024:
-                raise ValueError("Windows event query exceeded its bounded response")
-            records = json.loads(result.stdout.decode("utf-8-sig"))
-            for event in records:
-                next_cursor = {"channel": channel, "record_id": str(event["record_id"]), "initial_history_limit": 100}
-                self.spool.enqueue(event["xml"].encode(), "windows.event", "windows.event", "application/xml", cursor=next_cursor, cursor_key=cursor_key)
+            try:
+                self.read_windows_channel(channel)
+            except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+                errors.append(f"{channel}: {exc}")
+        if errors:
+            raise RuntimeError(" | ".join(errors))
+
+    def read_windows_channel(self, channel):
+        cursor_key = "windows:" + channel
+        cursor = self.spool.get(cursor_key, {})
+        record = int(cursor.get("record_id", 0))
+        encoded_channel = base64.b64encode(channel.encode()).decode()
+        script = "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);$channel=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded_channel + "'));"
+        script += f"$record=[long]{record};"
+        script += """
+$events = @()
+$resetFrom = $null
+try {
+    $latestRecord = 0
+    if ($record -gt 0) {
+        $latest = Get-WinEvent -LogName $channel -MaxEvents 1 -ErrorAction Stop
+        $latestRecord = $latest.RecordId
+        if ($latestRecord -lt $record) {
+            $resetFrom = [string]$record
+            $record = 0
+        }
+    }
+    if ($record -eq 0) {
+        $events = @(Get-WinEvent -LogName $channel -MaxEvents 100 -ErrorAction Stop | Sort-Object RecordId)
+    } elseif ($latestRecord -gt $record) {
+        $events = @(Get-WinEvent -LogName $channel -FilterXPath "*[System[EventRecordID > $record]]" -Oldest -MaxEvents 100 -ErrorAction Stop)
+    }
+} catch {
+    if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*') { throw }
+}
+$out = @($events | ForEach-Object { @{ record_id = [string]$_.RecordId; xml = $_.ToXml() } })
+ConvertTo-Json -InputObject @{ reset_from = $resetFrom; events = $out } -Compress -Depth 5
+"""
+        encoded = base64.b64encode(script.encode("utf-16-le")).decode()
+        result = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if result.returncode:
+            raise RuntimeError("Windows Event Log query failed: " + result.stderr.decode(errors="replace")[:400])
+        if len(result.stdout) > 10 * 1024 * 1024:
+            raise ValueError("Windows event query exceeded its bounded response")
+        report = json.loads(result.stdout.decode("utf-8-sig"))
+        reset_from = report["reset_from"]
+        if reset_from:
+            log.warning("Windows Event Log %s restarted from its latest retained records (previous cursor %s)", channel, reset_from)
+        for event in report["events"]:
+            next_cursor = {"channel": channel, "record_id": str(event["record_id"]), "initial_history_limit": 100}
+            if reset_from:
+                next_cursor["reset_from_record_id"] = reset_from
+                reset_from = None
+            self.spool.enqueue(event["xml"].encode(), "windows.event", "windows.event", "application/xml", cursor=next_cursor, cursor_key=cursor_key)
 
     def linux_journal(self):
         if not sys.platform.startswith("linux") or not self.config.get("enable_events"):
@@ -601,7 +640,7 @@ class Agent:
                 self.flush()
                 backlog=self.spool.status()
                 if backlog['queued']<100 and backlog['awaiting_seal']<100:break
-        operations = [("heartbeat", self.heartbeat), ("transport", deliver), ("windows", self.windows_events), ("journal", self.linux_journal)]
+        operations = [("heartbeat", self.heartbeat), ("windows", self.windows_events), ("journal", self.linux_journal)]
         from .firewall import tail_firewall
         for path in self.config.get('firewall_files', []):
             operations.append(('firewall:' + path, lambda p=path: tail_firewall(self, p)))
@@ -614,6 +653,7 @@ class Agent:
         while not self.changed.empty():
             path = self.changed.get_nowait()
             operations.append(("fim.event", lambda p=path: self.inspect_file(p)))
+        operations.append(("transport", deliver))
         operations.append(("acquisition", self.poll_acquisition))
         for name, operation in operations:
             try:

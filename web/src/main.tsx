@@ -1,10 +1,9 @@
 import {MotionControl,SignalLines} from './motion';
 import React, {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
-import {ArrowRight, Bell, BookOpen, Boxes, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, Clock3, Cloud, Cpu, FileCheck2, FileSearch, FileText, Fingerprint, FlaskConical, FolderOpen, HardDriveDownload, History, LayoutDashboard, Link2, ListChecks, LoaderCircle, LockKeyhole, LogOut, Menu, Monitor, Moon, Network, Pause, Play, Plus, Radio, RefreshCw, Search, Settings, ShieldAlert, ShieldCheck, Sun, Users, Wrench, X, type LucideIcon} from 'lucide-react';
+import {ArrowRight, Bell, BookOpen, Boxes, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, Clock3, Cloud, Cpu, FileCheck2, FileSearch, FileText, Fingerprint, FolderOpen, HardDriveDownload, History, LayoutDashboard, Link2, ListChecks, LoaderCircle, LockKeyhole, LogOut, Menu, Monitor, Moon, Network, Pause, Play, Plus, Radio, RefreshCw, Search, Settings, ShieldAlert, ShieldCheck, Sun, Users, Wrench, X, type LucideIcon} from 'lucide-react';
 import {api, setCsrf, type Row, bytes, utc, short, routeQuery, asArray, isOnline, severityLabels} from './lib';
 import './theme.css';
-import {AttackLab} from './lab';
 import {GettingStarted} from './guide';
 import {SignalBanner} from './edge';
 import {Ctx, useApp, sources, roleWrite, useData, State, Empty, Badge, Severity, CopyButton, Id, Stamp, Notice, Panel, PageHead, TextField, SelectField, TextArea, Form, Table, Tabs, DetailGrid, StructuredView, BarChart, Donut, type Session, type Context} from './ui';
@@ -40,7 +39,7 @@ const navGroups:{group:string;items:NavItem[]}[]=[
  {group:'Workspace',items:[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'live',label:'Live monitor',icon:Radio},{id:'guide',label:'Getting started',icon:BookOpen}]},
  {group:'Investigation',items:[{id:'evidence',label:'Evidence explorer',icon:FileSearch},{id:'timeline',label:'Timeline',icon:History},{id:'alerts',label:'Alerts & anomalies',icon:Bell},{id:'cases',label:'Case workspace',icon:FolderOpen},{id:'assistant',label:'Evidence assistant',icon:BrainCircuit}]},
  {group:'Preservation',items:[{id:'collectors',label:'Collectors',icon:Monitor},{id:'integrity',label:'Integrity',icon:ShieldCheck},{id:'custody',label:'Chain of custody',icon:Link2},{id:'acquisitions',label:'Acquisitions',icon:HardDriveDownload},{id:'reports',label:'Reports & exports',icon:FileText},{id:'cloud',label:'Cloud archive',icon:Cloud}]},
- {group:'Operations',items:[{id:'lab',label:'Attack simulation lab',icon:FlaskConical},{id:'integrations',label:'Tools & sensors',icon:Wrench},{id:'jobs',label:'Background jobs',icon:ListChecks},{id:'models',label:'Models & rules',icon:Cpu},{id:'admin',label:'Administration',icon:Settings}]},
+ {group:'Operations',items:[{id:'integrations',label:'Tools & sensors',icon:Wrench},{id:'jobs',label:'Background jobs',icon:ListChecks},{id:'models',label:'Models & rules',icon:Cpu},{id:'admin',label:'Administration',icon:Settings}]},
 ];
 const flatNav=navGroups.flatMap(g=>g.items.map(i=>({...i,group:g.group})));
 function storedCollapsed():string[]{try{return JSON.parse(localStorage.getItem('cbb-nav-collapsed')||'[]')}catch{return []}}
@@ -60,7 +59,7 @@ function App(){
  useEffect(()=>{try{localStorage.setItem('cbb-nav-collapsed',JSON.stringify(collapsed))}catch{/* ignore */}},[collapsed]);
  const go=(path:string)=>{window.location.hash=path};const refresh=()=>setRevision(x=>x+1);const notify=(message:string,kind='success')=>setToast({message,kind});
  const context:Context={session:session!,status:status!,revision,refresh,notify,modal:(title,content)=>setDialog({title,content}),close:()=>setDialog(null),go,act:async(path,method,body,message='Changes saved')=>{const result=await api(path,method,body);refresh();if(message)notify(message);return result}};
- const [page,query='']=location.split('?');const params=new URLSearchParams(query);
+ const [route,query='']=location.split('?');const page=route==='lab'?'guide':route;const params=new URLSearchParams(query);
  const selected=flatNav.find(x=>x.id===page)||flatNav[0];
  const detail=params.get('id')||params.get('target')||'';
  useEffect(()=>{document.title=selected.label+' · Cyber Black Box'},[selected.label]);
@@ -99,7 +98,7 @@ function UtcClock(){const [now,setNow]=useState(()=>new Date());useEffect(()=>{c
 
 function Page({page,params}:{page:string;params:URLSearchParams}){
  switch(page){
-  case 'guide':return <GettingStarted/>;case 'lab':return <AttackLab/>;case 'live':return <LiveMonitor/>;case 'integrations':return <Integrations/>;
+  case 'guide':return <GettingStarted/>;case 'live':return <LiveMonitor/>;case 'integrations':return <Integrations/>;
   case 'cloud':return <CloudArchive/>;case 'assistant':return <Assistant/>;case 'evidence':return <Evidence params={params}/>;case 'timeline':return <Timeline/>;
   case 'alerts':return <Alerts/>;case 'cases':return <Cases params={params}/>;case 'collectors':return <Collectors/>;case 'integrity':return <Integrity/>;
   case 'custody':return <Custody params={params}/>;case 'acquisitions':return <Acquisitions/>;case 'reports':return <Reports/>;case 'jobs':return <Jobs/>;
@@ -133,7 +132,7 @@ function Overview(){
    <div className="overview-grid">
     <Panel title="Evidence by source" subtitle="Preserved records in your authorized scope" actions={<button className="text-button" onClick={()=>go('evidence')}>Explore evidence <ArrowRight size={14}/></button>}>
      {sourceRows.length?<div className="chart"><BarChart data={sourceRows.map(s=>({label:String(s.source_type),value:Number(s.count)||0}))} onSelect={l=>go(routeQuery('evidence',{source:l}))}/></div>
-     :<Empty title="Begin your evidence trail" description="Enroll a collector, run an attack simulation or import a fixture to start preserving records." action={<button className="secondary" onClick={()=>go('lab')}>Open simulation lab <ArrowRight size={15}/></button>}/>}
+     :<Empty title="Begin your evidence trail" description="Connect a collector or import logs from a separate authorized source." action={<button className="secondary" onClick={()=>go('collectors')}>Open collectors <ArrowRight size={15}/></button>}/>}
     </Panel>
     <Panel title="Preservation health" subtitle="Integrity and availability are separate checks" className="preservation-panel">
      <div className="health-summary"><div className={'health-icon '+(vStatus==='INVALID'?'bad':!verification?'idle':'')}>{vStatus==='INVALID'?<ShieldAlert size={26}/>:<ShieldCheck size={26}/>}</div><div><h3>{verification?vStatus==='INVALID'?'Verification needs attention':'Latest verification: '+vStatus:'Verification not run yet'}</h3><p>{verification?.assurance||'Run a verification to assess preserved data.'}</p></div></div>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docker Security Simulation Lab</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="context"><span aria-hidden="true"></span> Local Docker lab</p>
+      <h1>Security Simulation Lab</h1>
+      <p>Run a scenario to create synthetic security records. Search the run reference in Cyber Black Box to see what the collector received.</p>
+    </header>
+    <section aria-label="Lab scenarios" class="actions">
+      <article>
+        <h2>Failed login simulation</h2>
+        <p>Six synthetic failed sign-in records.</p>
+        <button type="button" data-scenario="failed-login" aria-label="Run failed login simulation">Run scenario</button>
+      </article>
+      <article>
+        <h2>Web path simulation</h2>
+        <p>Five synthetic web request records.</p>
+        <button type="button" data-scenario="web-path" aria-label="Run web path simulation">Run scenario</button>
+      </article>
+      <article>
+        <h2>TCP connection simulation</h2>
+        <p>Six synthetic connection records.</p>
+        <button type="button" data-scenario="tcp-connection" aria-label="Run TCP connection simulation">Run scenario</button>
+      </article>
+    </section>
+    <section class="result" aria-labelledby="result-title">
+      <h2 id="result-title">Latest run</h2>
+      <div role="status" aria-live="polite">
+        <p id="status">Choose a scenario to begin.</p>
+        <p id="detail" hidden></p>
+        <p id="reference" hidden><code id="marker"></code></p>
+      </div>
+      <button type="button" id="copy" hidden>Copy reference</button>
+    </section>
+  </main>
+</body>
+</html>

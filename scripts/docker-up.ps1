@@ -1,6 +1,6 @@
 param([switch]$Reset, [switch]$NoBuild)
 # Creates .env with random secrets (first run only), then builds and starts
-# the four-container stack and prints the first-time setup token.
+# the evidence stack and prints the first-time setup token.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
@@ -21,7 +21,6 @@ if (-not (Test-Path -LiteralPath '.env')) {
     @(
         "POSTGRES_PASSWORD=$(New-Secret)",
         "CBB_SIGNER_TOKEN=$(New-Secret)",
-        "CBB_LAB_SENDER_TOKEN=$(New-Secret)",
         "CBB_PORT=8765"
     ) | Set-Content -LiteralPath '.env' -Encoding ascii
     Write-Host 'Created .env with new random secrets.'

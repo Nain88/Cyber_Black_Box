@@ -1,4 +1,4 @@
-# One image, three roles (app, trust, lab) selected by the compose command.
+# One image shared by the app and trust services.
 FROM node:22-bookworm-slim AS web
 RUN corepack enable && corepack prepare pnpm@10.20.0 --activate
 WORKDIR /build/web

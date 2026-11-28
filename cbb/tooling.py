@@ -19,7 +19,7 @@ def bounded_process(command,timeout):
         return process.returncode,output.read(4000).decode("utf-8",errors="replace").strip()
 
 def mega_command(verb, *args, timeout=600):
-    if verb not in {"version","whoami","mkdir","put","get","ls"}:raise ValueError("Unsupported MEGA operation")
+    if verb not in {"version","whoami","mkdir","put","get","ls","mv"}:raise ValueError("Unsupported MEGA operation")
     configured=os.getenv("CBB_MEGACMD_DIR","")
     if os.name=="nt":
         root=Path(configured or Path(os.getenv("LOCALAPPDATA",""))/"MEGAcmd")
@@ -34,6 +34,10 @@ def mega_command(verb, *args, timeout=600):
         returncode,output=bounded_process(command,timeout)
     except subprocess.TimeoutExpired as ex:raise DomainError("MEGA_TIMEOUT","MEGA operation timed out; remote transfer may still be pending; retry verifies before upload",503) from ex
     except OSError as ex:raise DomainError("MEGA_UNAVAILABLE","MEGAcmd could not start. Check executable permissions and the local service session",503) from ex
+    if verb == "mkdir" and args[:1] == ("-p",) and returncode in {54, 202, -54} and "Folder already exists:" in output:
+        return output
+    if verb == "ls" and returncode in {53, 181, -53} and "Couldn't find" in output:
+        raise DomainError("MEGA_NOT_FOUND", "MEGA path was not found.", 404)
     if returncode:raise DomainError("MEGA_OPERATION_FAILED",f"MEGA {verb} failed (code {returncode}). Check local login, storage/transfer quota and connection in MEGAcmd.",503)
     return output
 

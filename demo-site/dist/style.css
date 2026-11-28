@@ -1,0 +1,27 @@
+:root {
+  font: 16px/1.55 system-ui, sans-serif;
+  color: #152c31;
+  background: #edf3f1;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 66rem; margin-inline: auto; padding: clamp(1rem, 4vw, 3rem); }
+header { background: #132f35; color: #f1faf8; border-radius: 1rem; padding: clamp(1.5rem, 5vw, 3.5rem); }
+h1, h2, p { margin: 0; }
+h1 { max-width: 16ch; font-size: clamp(2.2rem, 5vw, 4rem); line-height: 1.08; letter-spacing: -.045em; }
+h2 { font-size: 1.15rem; }
+header > p:last-child { max-width: 50ch; margin-top: 1rem; color: #c8e1db; }
+.context { display: flex; align-items: center; gap: .6rem; color: #a9e9d2; margin-bottom: 1.3rem; }
+.context span { width: .55rem; height: .55rem; border-radius: 50%; background: #84dfbd; }
+.actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 1rem; margin-block: 1rem; }
+article, .result { background: #fff; border: 1px solid #d5e2dd; border-radius: .85rem; padding: 1.25rem; }
+article { display: flex; flex-direction: column; align-items: start; gap: .65rem; }
+article p, #detail { color: #435d62; }
+button { font: inherit; font-weight: 650; color: #0c4e45; background: #dcf3eb; border: 1px solid #a1cbbb; border-radius: .55rem; padding: .5rem .8rem; cursor: pointer; }
+article button { margin-top: auto; }
+button:hover { background: #c7eddf; }
+button:focus-visible { outline: 3px solid #1e6c9e; outline-offset: 3px; }
+button:disabled { opacity: .6; cursor: wait; }
+.result p, #copy { margin-top: .6rem; }
+code { overflow-wrap: anywhere; padding: .2rem .45rem; background: #eef4f1; border-radius: .3rem; }
+#status[data-error] { color: #a32e25; }

@@ -72,6 +72,33 @@ def test_live_scope_and_opt_in_intake(app_client):
     client.delete('/api/v1/auth/session')
     assert client.get('/api/v1/live/events').status_code==401
 
+
+def test_live_volume_counts_all_scoped_records_not_only_the_latest_page(app_client):
+    app, client = app_client
+    service = app.state.service
+    token = client.post("/api/v1/enrollments", json={"name": "OS collector"}).json()["token"]
+    collector_id = service.enroll(token)["collector_id"]
+    with service.db.read() as c:
+        collector = row(c, select(D.collectors).where(D.collectors.c.id == collector_id))
+    service.accept(collector, [wire("1", source_type="windows.event")])
+    service.seal_pending()
+    case_id = client.get("/api/v1/cases").json()[0]["id"]
+    client.put(f"/api/v1/collectors/{collector_id}/configuration", json={"intake_case_id": case_id}).raise_for_status()
+    with service.db.read() as c:
+        collector = row(c, select(D.collectors).where(D.collectors.c.id == collector_id))
+    service.accept(collector, [wire(str(i), source_type="windows.event") for i in range(2, 67)])
+    service.accept(collector, [wire(str(i), source_type="linux.journal") for i in range(67, 133)])
+    service.seal_pending(limit=140)
+    assert len(client.get("/api/v1/live/events").json()["items"]) == 100
+    buckets = client.get("/api/v1/live/volume").raise_for_status().json()["buckets"]
+    assert len(buckets) == 30 and sum(item["windows"] for item in buckets) == 65
+    assert sum(item["linux"] for item in buckets) == 66
+    filtered = client.get("/api/v1/live/volume?source=linux.journal").json()["buckets"]
+    assert sum(item["windows"] for item in filtered) == 0
+    assert sum(item["linux"] for item in filtered) == 66
+    client.delete("/api/v1/auth/session")
+    assert client.get("/api/v1/live/volume").status_code == 401
+
 def test_firewall_bad_fields_and_ip():
     with pytest.raises(ValueError):parse_record(record(),[])
     with pytest.raises(ValueError):parse_record(record().replace(b'192.0.2.10',b'not-an-ip'),FIELDS)

@@ -79,6 +79,10 @@ def main(argv=None):
     vr.add_argument("report",type=Path);vr.add_argument("signature",type=Path);vr.add_argument("--public-key",required=True)
     s.add_parser("checkpoint",help="Create a signed checkpoint while server is stopped")
     b=s.add_parser("backup",help="Offline consistent SQLite and archive backup");b.add_argument("destination",type=Path)
+    mega=s.add_parser("configure-mega",help="Update a native deployment's MEGA policy while its server is stopped")
+    mega.add_argument("--interval-minutes",type=int,required=True,choices=range(5,1441),metavar="5–1440")
+    mega.add_argument("--expire-logs",action="store_true",help="Move eligible new verified MEGA log copies to the Rubbish Bin after five days")
+    mega.add_argument("--queue-backup",action="store_true",help="Queue a full archive backup for the next server start")
     r=s.add_parser("restore",help="Restore a backup into a new empty directory");r.add_argument("backup",type=Path);r.add_argument("--checkpoint",type=Path)
     s.add_parser("schema",help="Print ingest JSON Schema")
     a=p.parse_args(argv)
@@ -118,6 +122,9 @@ def main(argv=None):
             print(json.dumps(WireEvent.model_json_schema(),indent=2));return 0
         settings=Settings()
         if a.data:settings.data=a.data.resolve()
+        if a.command == "configure-mega" and (
+                settings.mode != "virtual" or settings.database_url or not (settings.data / "cbb.sqlite3").is_file()):
+            raise ValueError("configure-mega requires the data directory of an existing native SQLite deployment")
         if a.command=="serve":
             from .api import create_app
             import uvicorn
@@ -147,6 +154,20 @@ def main(argv=None):
             elif a.command in ("verify","restore"):
                 result=service.verify(json.loads(a.checkpoint.read_bytes()) if a.checkpoint else None);print(json.dumps(result,indent=2));return 2 if result["status"]=="INVALID" else 0
             elif a.command=="checkpoint":print(json.dumps(service.checkpoint("operator-cli"),indent=2))
+            elif a.command == "configure-mega":
+                from .cloud import MegaPolicy, queue_backup, save_policy, settings as mega_settings
+                from .service import DomainError
+                from .tooling import mega_command
+                policy = MegaPolicy(enabled=True, automatic=True, interval_minutes=a.interval_minutes,
+                                    remote_root=mega_settings(service)["remote_root"], expire_logs=a.expire_logs)
+                try:
+                    mega_command("whoami", timeout=15)
+                    document = save_policy(service, policy, "operator-cli")
+                    if a.queue_backup:
+                        document["job_id"] = queue_backup(service, "operator-cli")
+                    print(json.dumps(document, indent=2))
+                except DomainError as ex:
+                    raise ValueError(ex.message) from ex
             elif a.command=="backup":
                 if not service.db.sqlite:raise ValueError("PostgreSQL: use the documented pg_dump plus archive backup procedure")
                 dest=a.destination.resolve()

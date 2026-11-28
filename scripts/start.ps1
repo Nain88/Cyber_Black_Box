@@ -2,6 +2,17 @@ param([switch]$Install, [string]$Data = 'data', [int]$Port = 8765)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
+$launcherConfig = Join-Path $projectRoot 'work\native-launcher.json'
+if (-not $PSBoundParameters.ContainsKey('Data') -and (Test-Path -LiteralPath $launcherConfig -PathType Leaf)) {
+    $defaults = Get-Content -LiteralPath $launcherConfig -Raw | ConvertFrom-Json
+    if ($defaults.data -isnot [string] -or [string]::IsNullOrWhiteSpace($defaults.data)) {
+        throw 'The launcher configuration must specify the existing Cyber Black Box data directory.'
+    }
+    $Data = $defaults.data
+    if (-not (Test-Path -LiteralPath (Join-Path $Data 'cbb.sqlite3') -PathType Leaf)) {
+        throw "The saved Cyber Black Box data directory is unavailable: $Data"
+    }
+}
 $pythonExe = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonExe)) {
     if (Get-Command py -ErrorAction SilentlyContinue) { & py -3.12 -m venv .venv }
@@ -45,7 +56,7 @@ print(json.loads(entry[0])['id'] if entry else '')
             Start-Process "$env:CBB_PUBLIC_URL/#overview"
             exit 0
         }
-        throw "Port $Port is serving a different deployment. Check the data directory and port."
+        throw "Port $Port is serving a different deployment than '$Data'. Select the matching data directory or use a different port."
     }
 }
 & (Join-Path $PSScriptRoot 'protect-windows-keys.ps1') -Data $Data

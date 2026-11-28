@@ -11,7 +11,49 @@ export function Integrations(){
 export function CloudArchive(){
  const {session,act,notify,go}=useApp();const admin=session.user.role==='admin';const policy=useData(admin?'/cloud/mega/settings':null);const objects=useData<Row[]>(admin?'/cloud/objects':null,15000);const [busy,setBusy]=useState(false);
  const backup=async()=>{setBusy(true);try{await act('/cloud/mega/backup','POST',{},'Backup queued. Follow progress in Background jobs.');go('jobs')}catch(e){notify((e as Error).message,'error')}finally{setBusy(false)}};
- return <><PageHead eyebrow="Preservation" title="Cloud archive" description="Preserve closed evidence segments, artifacts, reports and custody metadata in your MEGA account." actions={admin&&<button className="primary" disabled={busy||!policy.data?.enabled} onClick={backup}><Cloud size={17}/> Back up now</button>}/><Notice>Verified means uploaded bytes were downloaded and their SHA-256 matched at the displayed time. MEGA is a backup, not WORM storage or an independent witness. Keep a separate consistent database and signing-key backup for full application recovery.</Notice>{!admin?<Notice>Cloud archive configuration requires an administrator.</Notice>:<><State state={policy}>{policy.data&&<Panel title="Backup policy" subtitle="Automatic backup is off until you explicitly enable it."><div className="panel-content"><Form submit="Save backup policy" onSubmit={async v=>{await act('/cloud/mega/settings','PUT',{enabled:v.enabled==='true',automatic:v.automatic==='true',interval_minutes:Number(v.interval_minutes),remote_root:v.remote_root})}}><div className="form-grid"><SelectField label="MEGA backup" name="enabled" defaultValue={String(policy.data.enabled)} options={[{value:'false',label:'Disabled'},{value:'true',label:'Enabled'}]}/><SelectField label="Scheduling" name="automatic" defaultValue={String(policy.data.automatic)} options={[{value:'false',label:'Manual only'},{value:'true',label:'Automatic'}]}/><TextField label="Interval (minutes)" name="interval_minutes" type="number" min={5} max={1440} defaultValue={policy.data.interval_minutes}/><TextField label="MEGA remote folder" name="remote_root" required defaultValue={policy.data.remote_root}/></div></Form></div></Panel>}</State><Panel title="Verified objects" subtitle="Latest 500 objects. Restore check downloads into a new local staging folder and verifies it without replacing original evidence."><State state={objects}><Table rows={objects.data||[]} columns={[{label:'Object',render:r=><div className="table-title"><strong>{r.source_kind}</strong><small>{r.local_path}</small></div>},{label:'Size',render:r=>bytes(r.size)},{label:'SHA-256',render:r=><Id value={r.sha256}/>},{label:'State',render:r=><Badge>{r.state}</Badge>},{label:'Last verified',render:r=><Stamp value={r.verified_at}/>},{label:'Recovery test',render:r=><button className="secondary small" onClick={async()=>{try{await act('/cloud/objects/'+r.id+'/restore-check','POST',{},'Restore check queued');go('jobs')}catch(e){notify((e as Error).message,'error')}}}><ShieldCheck size={14}/> Restore check</button>}]} empty="No remote objects verified yet. Sign in to official MEGAcmd, enable backup, then run Back up now."/></State></Panel></>}</>;
+ return <>
+  <PageHead eyebrow="Preservation" title="Cloud archive"
+   description="Preserve closed evidence segments, artifacts, reports and custody metadata in your MEGA account."
+   actions={admin&&<button className="primary" disabled={busy||!policy.data?.enabled} onClick={backup}><Cloud size={17}/> Back up now</button>}/>
+  <Notice>Verified means the downloaded copy matched its SHA-256. MEGA copies can be changed by the account owner. Keep a separate database and signing-key backup for full recovery.</Notice>
+  {!admin?<Notice>Cloud archive configuration requires an administrator.</Notice>:<>
+   <State state={policy}>{policy.data&&<Panel title="Backup policy">
+    <div className="panel-content">
+     <Form submit="Save backup policy" onSubmit={async v=>{
+      await act('/cloud/mega/settings','PUT',{
+       enabled:v.enabled==='true',automatic:v.automatic==='true',interval_minutes:Number(v.interval_minutes),
+       remote_root:v.remote_root,expire_logs:v.expire_logs==='true',
+      },'Backup policy saved');
+     }}>
+      <div className="form-grid">
+       <SelectField label="MEGA backup" name="enabled" defaultValue={String(policy.data.enabled)} options={[{value:'false',label:'Disabled'},{value:'true',label:'Enabled'}]}/>
+       <SelectField label="Scheduling" name="automatic" defaultValue={String(policy.data.automatic)} options={[{value:'false',label:'Manual only'},{value:'true',label:'Automatic'}]}/>
+       <TextField label="Interval (minutes)" name="interval_minutes" type="number" min={5} max={1440} defaultValue={policy.data.interval_minutes}/>
+       <TextField label="MEGA remote folder" name="remote_root" required defaultValue={policy.data.remote_root}/>
+       <SelectField label="Log copy retention" name="expire_logs" defaultValue={String(policy.data.expire_logs)} options={[{value:'false',label:'Keep cloud log copies'},{value:'true',label:'Move log copies to Rubbish Bin after 5 days'}]}/>
+      </div>
+      <Notice>Expiry runs in the background for new verified log segments and their manifests. The five days start at verification. Earlier backups, local originals, and logs linked to cases on hold are kept.</Notice>
+     </Form>
+    </div>
+   </Panel>}</State>
+   <Panel title="Cloud objects" subtitle="Latest 500 copies. Restore check verifies the remote bytes in a new local staging folder.">
+    <State state={objects}>
+     <Table rows={objects.data||[]} columns={[
+      {label:'Object',render:r=><div className="table-title"><strong>{r.source_kind}</strong><small>{r.local_path}</small></div>},
+      {label:'Size',render:r=>bytes(r.size)},
+      {label:'SHA-256',render:r=><Id value={r.sha256}/>},
+      {label:'State',render:r=><Badge tone={r.state==='EXPIRED'?'slate':r.state==='VERIFIED'?'green':'amber'}>{r.state}</Badge>},
+      {label:'Last verified',render:r=><Stamp value={r.verified_at}/>},
+      {label:'Eligible for expiry',render:r=>r.expired_at?<span title="Moved to MEGA Rubbish Bin"><Stamp value={r.expired_at}/></span>:<Stamp value={r.expires_at}/>},
+      {label:'Recovery test',render:r=>r.state==='EXPIRED'?'—':<button className="secondary small" onClick={async()=>{
+       try{await act('/cloud/objects/'+r.id+'/restore-check','POST',{},'Restore check queued');go('jobs')}
+       catch(e){notify((e as Error).message,'error')}
+      }}><ShieldCheck size={14}/> Restore check</button>},
+     ]} empty="No remote objects verified yet. Sign in to MEGAcmd, enable backup, then run Back up now."/>
+    </State>
+   </Panel>
+  </>}
+ </>;
 }
 
 export function Assistant(){

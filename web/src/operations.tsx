@@ -7,7 +7,36 @@ import {Download} from './shared';
 import {Gauge} from 'lucide-react';
 
 function Enrollment(){const {act}=useApp();const [token,setToken]=useState<Row>();return token?<><div className="success-panel"><CheckCircle2 size={34}/><h3>Enrollment token ready</h3><p>Single use · expires in 10 minutes</p></div><Notice>This token is shown only in this dialog. Copy it now and enter it on the intended endpoint. Do not include it in reports or screenshots.</Notice><div className="secret"><code>{token.token}</code><CopyButton value={token.token}/></div><h3>On the endpoint</h3><p>Run the collector enrollment command from the project folder. It prompts for this token so it does not need to appear in shell history.</p><pre className="command">python -m cbb.agent enroll --server {window.location.origin}</pre><p className="muted">For Cloud Mode, follow the deployment guide to provision a client certificate and bind it to the enrolled collector.</p></>:<Form submit="Create enrollment token" onSubmit={async v=>setToken(await act('/enrollments','POST',v,'Enrollment token created'))}><TextField label="Endpoint name" name="name" required min={3} max={100} placeholder="Windows investigation laptop"/><SelectField label="Operating system" name="os" options={['Windows','Linux']}/><Notice>Enrollment creates an authenticated identity. It does not automatically enable collection or change endpoint auditing policy.</Notice></Form>}
-function CollectorConfig({item}:{item:Row}){const {act,close}=useApp();const conf=item.configuration||{};const linux=String(pick(item,'health','platform')||'').startsWith('linux');return <Form submit="Apply signed configuration" onSubmit={async v=>{await act('/collectors/'+item.id+'/configuration','PUT',{paths:v.paths.split('\n').map(x=>x.trim()).filter(Boolean),channels:v.channels.split('\n').map(x=>x.trim()).filter(Boolean),poll_seconds:Number(v.poll_seconds),max_file_bytes:Number(v.max_file_bytes)},'Collector configuration updated');close()}}><Notice>The agent verifies the signed configuration before applying it. Endpoint-local permissions and path restrictions still apply.</Notice><TextArea label="Allowed file paths" name="paths" defaultValue={(conf.paths||[]).join('\n')} help="One absolute directory per line. File monitoring and selected-file acquisition stay inside these paths."/><TextArea label={linux?'Event channels (Linux collectors read the journal)':'Windows event channels'} name="channels" defaultValue={(conf.channels||(linux?[]:['System'])).join('\n')} help={linux?'Leave empty for Linux endpoints; the systemd journal is collected instead.':'One channel per line. Permissions are required for protected event channels.'}/><div className="form-grid"><TextField label="Poll interval (seconds)" name="poll_seconds" type="number" min={2} max={60} defaultValue={conf.poll_seconds||5}/><TextField label="Maximum file size (bytes)" name="max_file_bytes" type="number" min={1024} max={20971520} defaultValue={conf.max_file_bytes||20971520}/></div></Form>}
+function CollectorConfig({item}: {item: Row}) {
+ const {act,close}=useApp();
+ const conf=item.configuration||{};
+ const linux=String(pick(item,'health','platform')||'').startsWith('linux');
+ const cases=useData<Row[]>('/cases');
+ const selected=conf.intake_case_id||'';
+ const caseOptions=[{value:'',label:'No automatic case assignment'},...asArray(cases.data).map(c=>({value:c.id,label:caseLabel(c)}))];
+ if(selected&&!caseOptions.some(c=>c.value===selected)) caseOptions.push({value:selected,label:'Current case (unavailable)'});
+ return <Form submit="Apply signed configuration" onSubmit={async v=>{
+  const intake=v.intake_case_id;
+  await act('/collectors/'+item.id+'/configuration','PUT',{
+   paths:v.paths.split('\n').map(x=>x.trim()).filter(Boolean),
+   channels:v.channels.split('\n').map(x=>x.trim()).filter(Boolean),
+   poll_seconds:Number(v.poll_seconds),max_file_bytes:Number(v.max_file_bytes),
+   ...(intake!==undefined&&intake!==selected?{intake_case_id:intake||null}:{}),
+  },'Collector configuration updated');
+  close();
+ }}>
+  <Notice>The agent verifies the signed configuration before applying it. Endpoint-local permissions and path restrictions still apply.</Notice>
+  {cases.data&&<SelectField label="Automatic intake case" name="intake_case_id" defaultValue={selected} options={caseOptions}/>}
+  {cases.loading&&!cases.data&&<p className="muted" role="status">Loading available cases…</p>}
+  {cases.error&&!cases.data&&<p className="muted" role="status">Case options are unavailable. Reopen the configuration to try again.</p>}
+  <TextArea label="Allowed file paths" name="paths" defaultValue={(conf.paths||[]).join('\n')} help="One absolute directory per line. File monitoring and selected-file acquisition stay inside these paths."/>
+  <TextArea label={linux?'Event channels (Linux collectors read the journal)':'Windows event channels'} name="channels" defaultValue={(conf.channels||(linux?[]:['System'])).join('\n')} help={linux?'Leave empty for Linux endpoints; the systemd journal is collected instead.':'One channel per line. Permissions are required for protected event channels.'}/>
+  <div className="form-grid">
+   <TextField label="Poll interval (seconds)" name="poll_seconds" type="number" min={2} max={60} defaultValue={conf.poll_seconds||5}/>
+   <TextField label="Maximum file size (bytes)" name="max_file_bytes" type="number" min={1024} max={20971520} defaultValue={conf.max_file_bytes||20971520}/>
+  </div>
+ </Form>
+}
 function CollectorCoverage({item}: {item: Row}) {
  const health=item.health||{};
  const inputs=[...(health.network_inputs||[]),...(health.firewall_inputs||[]),...(health.zeek_inputs||[])];

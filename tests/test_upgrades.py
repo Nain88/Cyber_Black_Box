@@ -1,4 +1,5 @@
 """Real local algorithms/renderers; vendor transfer is simulated, not a live MEGA claim."""
+import gzip
 import json
 import zipfile
 from pathlib import Path
@@ -10,7 +11,7 @@ from test_api import app_client
 from cbb import db as D
 from cbb.crypto import uid,now,sha,canon,dumps,loads,verify_signature
 from cbb.service import row,rows,DomainError
-from cbb.cloud import replicate_mega,restore_check
+from cbb.cloud import expire_mega_logs,replicate_mega,restore_check
 from cbb.assistant import analyze_case
 from cbb.verify import verify_package
 
@@ -86,6 +87,8 @@ def test_mega_includes_evidence_proofs_artifacts_reports_and_verified_restore(se
     signed=json.loads(remote[result['inventory_remote_path']]);inventory=verify_signature(signed,'CBB-EXPORT-v1',service.deployment['public_key'])
     kinds={r['source_kind'] for r in inventory['objects']}
     assert {'segment','manifest','artifact','report-package','checkpoint','metadata-snapshot'}<=kinds
+    snapshot=next(r for r in inventory['objects'] if r['source_kind']=='metadata-snapshot')
+    assert json.loads(gzip.decompress(remote[snapshot['remote_path']]))['schema']=='cbb.archive-metadata/1'
     assert all('/keys/' not in path and 'sqlite' not in path for path in remote)
     item=next(r for r in inventory['objects'] if r['source_kind']=='artifact')
     restored=restore_check(service,{'object_id':item['id'],'actor_id':payload['actor_id']})
@@ -99,6 +102,74 @@ def test_mega_readback_mismatch_never_records_verified(service,monkeypatch):
     ingest(service);enable_mega(service);mega_fake(monkeypatch,{},corrupt=True)
     with pytest.raises(DomainError,match='REMOTE_HASH_MISMATCH'):replicate_mega(service,{'actor_id':'test'})
     with service.db.read() as c:assert not rows(c,select(D.cloud_objects))
+
+
+def test_mega_expiry_tracks_only_new_verified_logs_and_preserves_case_holds(service, monkeypatch):
+    from datetime import datetime, timedelta
+
+    remote, handles = {}, {}
+
+    def command(verb, *args, **kwargs):
+        if verb == "put":
+            target = args[1].rstrip("/") + "/" + Path(args[0]).name
+            remote[target] = Path(args[0]).read_bytes()
+            handles[target] = f"H:{len(handles) + 1:08d}"
+        elif verb == "get":
+            (Path(args[1]) / Path(args[0]).name).write_bytes(remote[args[0]])
+        elif verb == "ls":
+            path = args[-1]
+            if path not in remote:
+                raise DomainError("MEGA_NOT_FOUND", "Missing in test cloud", 404)
+            return f"---- 1 {len(remote[path])} 27Nov2026 09:00:00 {handles[path]} {Path(path).name}"
+        elif verb == "mv":
+            source = next(path for path, handle in handles.items() if handle == args[0])
+            target = args[1] + Path(source).name
+            handles[target], remote[target] = handles.pop(source), remote.pop(source)
+        return ""
+
+    monkeypatch.setattr("cbb.cloud.mega_command", command)
+    enable_mega(service)
+    payload = {"actor_id": "test"}
+    ingest(service)
+    replicate_mega(service, payload)
+    with service.db.read() as c:
+        legacy = {item["remote_path"] for item in rows(c, select(D.cloud_objects))}
+    with service.db.tx() as c:
+        c.execute(update(D.config).where(D.config.c.id == "mega-policy").values(
+            value=dumps({"enabled": True, "expire_logs": True}),
+        ))
+    case_fixture(service)
+    service.checkpoint()
+    service.accept(service.test_collector, [wire("5")])
+    service.seal_pending()
+    replicate_mega(service, payload)
+    assert expire_mega_logs(service, payload) == {"expired": 0, "skipped": 0}
+
+    with service.db.read() as c:
+        tracked = rows(c, select(D.cloud_objects, D.cloud_log_retention.c.expires_at).join(
+            D.cloud_log_retention, D.cloud_log_retention.c.object_id == D.cloud_objects.c.id,
+        ))
+        assert len(tracked) == 4
+        for item in tracked:
+            assert datetime.fromisoformat(item["expires_at"]) - datetime.fromisoformat(item["verified_at"]) == timedelta(days=5)
+    with service.db.tx() as c:
+        c.execute(update(D.cloud_log_retention).values(expires_at="2020-01-01T00:00:00.000Z"))
+    service.maintenance()
+    with service.db.read() as c:
+        job = row(c, select(D.jobs).where(D.jobs.c.kind == "mega-log-expiry"))
+    assert job and job["state"] == "QUEUED"
+    first = expire_mega_logs(service, payload)
+    assert first == {"expired": 2, "skipped": 0}
+    assert legacy <= remote.keys()
+    assert sum(path.startswith("//bin/") for path in remote) == 2
+    assert expire_mega_logs(service, payload) == {"expired": 0, "skipped": 0}
+    assert replicate_mega(service, payload)["expired_not_reuploaded"] == 2
+    with service.db.read() as c:
+        expired = rows(c, select(D.cloud_objects).where(D.cloud_objects.c.state == "EXPIRED"))
+        assert len(expired) == 2
+        assert all((service.root / item["local_path"]).is_file() for item in expired)
+        assert len(rows(c, select(D.custody).where(D.custody.c.action == "MEGA_LOG_EXPIRED"))) == 2
+    assert service.verify()["status"] == "VALID"
 
 def test_upgrade_routes_validation_and_scope(app_client):
     app,client=app_client;cid=client.get('/api/v1/cases').json()[0]['id']

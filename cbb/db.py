@@ -37,6 +37,9 @@ exports = table("export_packages", idcol(), txt("case_id"), num("case_version"),
 config = table("configuration", idcol(), txt("value"), num("version", default=1), txt("updated_at"))
 dispositions = table("dispositions", idcol(), txt("segment_id"), txt("manifest"), txt("created_at"))
 cloud_objects = table("cloud_objects", idcol(), txt("provider"), txt("source_kind"), txt("source_id"), txt("local_path"), txt("remote_path"), txt("sha256"), num("size"), txt("state"), txt("verified_at"), txt("created_at"), UniqueConstraint("provider","local_path","sha256"))
+cloud_log_retention = table("cloud_log_retention",
+    Column("object_id", String(64), ForeignKey("cloud_objects.id"), primary_key=True),
+    txt("remote_handle", nullable=False), txt("expires_at", nullable=False), txt("expired_at"))
 ai_runs = table("ai_runs", idcol(), txt("case_id"), txt("actor_id"), txt("engine"), txt("question"), txt("input_sha256"), txt("output_sha256"), txt("document"), txt("review"), txt("created_at"))
 
 
@@ -50,10 +53,12 @@ PERFORMANCE_INDEXES = (
     Index("ix_cbb_jobs_pending", jobs.c.state, jobs.c.created_at),
     Index("ix_cbb_receipts_pending", receipts.c.state, receipts.c.received_at),
     Index("ix_cbb_evidence_sequence", evidence.c.sequence),
+    Index("ix_cbb_evidence_receive_source", evidence.c.received_at, evidence.c.source_type),
     Index("ix_cbb_evidence_correlation", evidence.c.asset_id, evidence.c.event_type, evidence.c.sequence),
     Index("ix_cbb_evidence_segment", evidence.c.segment_id, evidence.c.sequence),
     Index("ix_cbb_case_evidence_scope", case_evidence.c.evidence_id, case_evidence.c.active, case_evidence.c.case_id),
     Index("ix_cbb_custody_target", custody.c.target, custody.c.sequence),
+    Index("ix_cbb_cloud_log_expiry", cloud_log_retention.c.expired_at, cloud_log_retention.c.expires_at),
 )
 
 

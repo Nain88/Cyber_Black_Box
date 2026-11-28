@@ -59,8 +59,6 @@ def case_text(values):
 
 def create_app(settings=None):
     service=Service(settings)
-    from .lab import LabManager
-    lab=LabManager(service)
     stop=threading.Event()
     worker_errors={"last_error":None,"last_tick":None,"lanes":{}}
 
@@ -96,7 +94,6 @@ def create_app(settings=None):
     @asynccontextmanager
     async def lifespan(app):
         service.recover_jobs()
-        lab.recover()
         thread=None;maintenance=[];anchors=None
         if service.settings.workers:
             thread=threading.Thread(target=worker,daemon=True);thread.start()
@@ -106,7 +103,6 @@ def create_app(settings=None):
                 runner.start()
             anchors=threading.Thread(target=anchor_worker,daemon=True);anchors.start()
         yield
-        lab.close()
         stop.set()
         if thread:thread.join(timeout=10)
         for runner in maintenance:runner.join(timeout=10)
@@ -114,7 +110,6 @@ def create_app(settings=None):
 
     app=FastAPI(title="Cyber Black Box",version="0.1.0",lifespan=lifespan,docs_url="/api/docs" if service.settings.mode=="virtual" else None,openapi_url="/api/openapi.json" if service.settings.mode=="virtual" else None)
     app.state.service=service
-    app.state.lab=lab
     throttle={};throttle_lock=threading.Lock()
 
     def rate(key,maximum=20,seconds=60):
@@ -689,27 +684,6 @@ def create_app(settings=None):
             if job["state"]!="FAILED":raise DomainError("STATE","Only failed jobs can be retried",409)
             c.execute(update(D.jobs).where(D.jobs.c.id==jid).values(state="QUEUED",attempts=0,next_attempt=0,updated_at=now()));service.audit(c,u["id"],"JOB_RETRIED",jid)
         return {"ok":True}
-
-    @app.get("/api/v1/lab")
-    def lab_status(u=Depends(admin)):
-        return lab.status(u)
-
-    @app.post("/api/v1/lab/runs",status_code=202)
-    def lab_start(body:dict,u=Depends(admin)):
-        if set(body)!={'scenario'}:raise DomainError("INVALID_INPUT","Only a predefined scenario is accepted",422)
-        return lab.start(u,body.get('scenario'))
-
-    @app.post("/api/v1/lab/check")
-    def lab_check(u=Depends(admin)):
-        return lab.check()
-
-    @app.post("/api/v1/lab/runs/{rid}/stop")
-    def lab_stop(rid:str,u=Depends(admin)):
-        return lab.stop_run(u,rid)
-
-    @app.post("/api/v1/lab/runs/{rid}/recover")
-    def lab_recover(rid:str,u=Depends(admin)):
-        return lab.recover_run(u,rid)
 
     @app.get("/api/v1/health/evidence")
     def live_evidence_health(u=Depends(admin)):

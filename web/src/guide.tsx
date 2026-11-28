@@ -10,7 +10,7 @@ const terms=[
  ['Signature','A cryptographic check against a trusted public key. Report signatures are downloaded as separate files.'],
  ['Checkpoint','A signed snapshot of archive state. Without an independent witness, assurance is limited to local checks.'],
  ['COMPLETE / VALID','Complete means a job finished. Valid means the verification checks passed. These are separate results.'],
- ['Lab simulation','Docker sends fixed requests to a dedicated Windows test service. Personal Windows accounts are not tested.'],
+ ['External log source','A separate website or endpoint generates logs. A configured collector sends them to this workspace.'],
 ];
 
 export function GettingStarted(){
@@ -20,12 +20,12 @@ export function GettingStarted(){
  const data=health.data;const receipts=asArray<Row>(data?.receipts);const staged=receipts.find(r=>r.state==='STAGED')?.count??0;
  return <>
   <PageHead eyebrow="Workspace" title="Getting started" description="Connect a source, collect an observation, investigate the evidence, and export a verified report." actions={<button className="secondary" onClick={()=>{health.reload();collectors.reload()}}>Refresh readiness</button>}/>
-  <Notice>Keep the project launcher running while using this dashboard. Docker Desktop with Linux containers is required for lab simulations; Windows log collection runs independently.</Notice>
+  <Notice>Keep the project launcher running while using this dashboard. Use a separate authorized source for activity, then review its preserved logs here.</Notice>
   <div className="setup-steps">
    <article><Badge>01 · WINDOWS SETUP</Badge><h2>Connect a Windows collector</h2><p>On a new computer, create your administrator account first. Stop the server with Ctrl+C, then run <strong>Setup-Windows-Collector.cmd</strong> from the project folder. This configures local System and Application logs and restarts the server while retaining existing credentials.</p><p>Confirm collection with a test event after the collector connects. Each computer needs its own collector configuration.</p><button className="secondary" onClick={()=>go('collectors')}>Open collectors</button></article>
    <article><Badge>02 · REAL TEST EVENT</Badge><h2>Confirm event collection</h2><p>Run this command in an administrator PowerShell window on your Windows computer. It creates an informational test event.</p><pre>eventcreate /T INFORMATION /ID 100 /L APPLICATION /SO CloudBoxTest /D "CBB-CHECK-001: Windows collection test"</pre><p>Wait 15–30 seconds, then search for the exact message. If it is missing, check source health and your case access.</p><button className="secondary" onClick={()=>go('evidence?q='+encodeURIComponent('CBB-CHECK-001'))}>Find my test event</button></article>
-   <article><Badge>03 · DOCKER LAB</Badge><h2>Run a controlled simulation</h2><p>Start Docker Desktop, check the connection on the Lab page, and choose a scenario. Received and preserved counts show separate stages. Stopping a run retains observations already received.</p><button className="secondary" onClick={()=>go('lab')}>Open simulation lab</button></article>
-   <article><Badge>04 · INVESTIGATE</Badge><h2>Review evidence and add notes</h2><p>Open the evidence case from your run, then select a record to inspect its original bytes. Add notes describing your observations and any limitations.</p><button className="secondary" onClick={()=>go('cases')}>Open case workspace</button></article>
+   <article><Badge>03 · EXTERNAL LOGS</Badge><h2>Collect from a separate source</h2><p>Open your authorized test website in another browser. Use a configured collector for automatic delivery, or import an existing log file when a live collector is unavailable.</p><button className="secondary" onClick={()=>go('collectors')}>Open collectors</button></article>
+   <article><Badge>04 · INVESTIGATE</Badge><h2>Review evidence and add notes</h2><p>Open your investigation case, then select a record to inspect its original bytes. Add notes describing your observations and any limitations.</p><button className="secondary" onClick={()=>go('cases')}>Open case workspace</button></article>
    <article><Badge>05 · VERIFY & REPORT</Badge><h2>Verify and export a snapshot</h2><p>Run verification from Integrity & checkpoints and review the result when it finishes. Generate a package from the case Reports tab. Generate a new package after adding notes; existing exports remain unchanged.</p><button className="secondary" onClick={()=>go('reports')}>Open reports</button></article>
    <article><Badge>06 · UNDERSTAND ASSURANCE</Badge><h2>Understand the scope</h2><p>Local verification is distinct from independent witnessing. Signatures do not prove complete capture or compromise. Validate optional cloud services, AI tools, packet sensors, and acquisitions before relying on them.</p><button className="secondary" onClick={()=>go('integrations')}>Check tools & sensors</button></article>
   </div>

@@ -502,6 +502,9 @@ class Service:
         if job["kind"]=="mega-restore-check":
             from .cloud import restore_check
             return restore_check(self,payload)
+        if job["kind"] == "mega-log-expiry":
+            from .cloud import expire_mega_logs
+            return expire_mega_logs(self, payload)
         if job["kind"]=="ai-assist":
             from .assistant import analyze_case
             return analyze_case(self,payload)
@@ -554,12 +557,25 @@ class Service:
         if not latest or time.time()-datetime.fromisoformat(latest["created_at"].replace("Z","+00:00")).timestamp()>=self.settings.checkpoint_seconds:
             self.checkpoint()
         self.anchor_pending()
-        from .cloud import settings as mega_settings
+        from .cloud import due_logs, settings as mega_settings
         policy=mega_settings(self)
         if policy["enabled"] and policy["automatic"]:
             with self.db.tx() as c:
                 latest_backup=row(c,select(D.jobs).where(D.jobs.c.kind=="mega-backup").order_by(D.jobs.c.created_at.desc()).limit(1))
                 if not latest_backup or (latest_backup["state"] in {"COMPLETE","FAILED"} and time.time()-datetime.fromisoformat(latest_backup["created_at"].replace("Z","+00:00")).timestamp()>policy["interval_minutes"]*60):self.create_job(c,"mega-backup","system",{"actor_id":"system"})
+        if policy["enabled"] and policy["expire_logs"]:
+            with self.db.read() as c:
+                latest_expiry = row(c, select(D.jobs).where(
+                    D.jobs.c.kind == "mega-log-expiry",
+                ).order_by(D.jobs.c.created_at.desc()).limit(1))
+                if latest_expiry and (latest_expiry["state"] not in {"COMPLETE", "FAILED"}
+                        or time.time() - datetime.fromisoformat(latest_expiry["updated_at"]).timestamp() < 300):
+                    return
+                pending = row(c, due_logs(now()).limit(1))
+            if pending:
+                with self.db.tx() as c:
+                    self.create_job(c, "mega-log-expiry", "system", {"actor_id": "system"},
+                                    operation_key=f"mega-log-expiry:{int(time.time()) // 300}")
 
     def recover_jobs(self):
         with self.db.tx() as c:

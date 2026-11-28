@@ -38,6 +38,16 @@ The verifier reports whether the supplied checkpoint matched or the witness rece
 
 ## Two browser demo and evidence health
 
+Open the Docker Security Simulation Lab and the Cyber Black Box console in separate browsers. The lab records clearly labelled synthetic failed login, web path and TCP connection events. The collector delivers the original fixture bytes through authenticated intake.
+
+1. Start Docker Desktop and Cyber Black Box. In Cyber Black Box, create a case named **Docker Security Lab**.
+2. Double-click `Start-Docker-Evidence-Demo.cmd`. On first use it will prompt for a collector token. In Cyber Black Box, go to **Collectors → Enroll collector**, enter **Docker Security Lab** as the endpoint name, and create a token. Paste the token into the launcher and press Enter. Keep the launcher open.
+3. In **Collectors**, refresh and open **Configure** for the Docker lab collector. Set **Automatic intake case** to your lab case and click **Apply signed configuration**. On later starts, the launcher reuses the saved collector identity and case assignment.
+4. In the second browser open [Docker Security Simulation Lab](http://127.0.0.1:8081). Run a scenario and copy its `CBB-LAB-…` reference.
+5. In your original browser, go to [Cyber Black Box](http://127.0.0.1:8765) → **Evidence explorer**, paste the reference, and click **Search**. If the record is still sealing, click **Refresh** after a few seconds. The case also lists every linked demo record.
+
+The site listens on Windows loopback and stores events in its own Docker volume. The collector runs on the Windows host and stores its private credentials and queue below the ignored `work/demo-site-agent/` directory. Only the collector communicates with Cyber Black Box. Closing the launcher pauses delivery. Opening it again continues from the saved cursor. To stop the website, run `docker compose -f compose.demo-site.yml stop` from the project folder. This retains the demo logs.
+
 1. Sign in to the same Cyber Black Box address in two browsers. Use a disposable case and administrator access on the import side.
 2. In the second browser, open **Collectors → Import**, select the case, and select **Fill synthetic demo record**. Copy its `CBB-DEMO-` marker, then select **Import and preserve records**.
 3. In the original browser, search for that marker in **Evidence Explorer**. Refresh results if you already had a frozen view. Open the record to inspect its `lab.fixture` source and preserved original bytes.

@@ -25,7 +25,14 @@ The saved `agent.json` contains a bearer credential. Keep it private and out of 
 .\.venv\Scripts\python.exe -m cbb.agent --config .\agent-data\agent.json run
 ```
 
-`once` collects after its initial delivery pass. Newly collected records remain in the local spool until a subsequent cycle sends them. **Queued**, **awaiting seal**, **quarantined**, and **blocked** have different meanings; an HTTP acceptance is not yet a sealed evidence record.
+`once` attempts to deliver newly collected records in the same cycle. The collector keeps data in its durable spool until the server confirms sealing. **Queued**, **awaiting seal**, **quarantined**, and **blocked** have different meanings.
+
+## Check live Windows and Linux collection
+
+1. Enroll one collector per operating system with `--enable-events`, using a separate data directory and one-time token for each. Keep existing enrolled collectors and their spool directories when upgrading. Use the Windows launcher for an existing local sensor or the [Linux VM connection guide](KALI-FIRST-CONNECTION.md) for a Linux VM on this laptop.
+2. In **Collectors → Configure**, set **Automatic intake case** to the case the dashboard operator can access. On Windows, start with `System` and `Application`. Add `Security` or `Microsoft-Windows-Sysmon/Operational` when the collector account can read those channels and they generate records. On Linux, the collector account must be able to run `journalctl`. The agent reads the journal independently of the Windows channel field.
+3. Generate a harmless marker. On Windows, in an Administrator PowerShell, run `eventcreate /T INFORMATION /ID 100 /L APPLICATION /SO CloudBoxTest /D "CBB-WINDOWS-LIVE-CHECK"`. In the Linux VM, run `logger -t cbb-check "CBB-LINUX-LIVE-CHECK"`.
+4. Open **Live monitor → Log volume**. It shows sealed observations by server receive minute and refreshes every five seconds while visible. Filter to `windows.event` or `linux.journal`, then open the matching row under **Incoming preserved logs** to verify its source and timestamp. If a source stays at zero, check **Collectors** for source errors, queue depth, and the last delivered record.
 
 ## Cloud TLS and client certificates
 
@@ -57,6 +64,8 @@ The agent sends its own certificate in the TLS handshake; it never manufactures 
 | Zeek | Repeat `--zeek-file /path/conn.log` | Original Zeek JSON or text log lines | JSON output offers richer normalization. Original text is retained even where no dedicated parser extracts every Zeek field. |
 
 Source records over 64 KiB are not silently truncated. The affected source pauses without advancing its cursor and reports an error; review the source or use an artifact acquisition/import workflow. Security-log auditing and Sysmon installation are explicit administrator tasks. This project does not claim to observe events the operating system never generated or retained.
+
+If a Windows channel restarts with record numbers below the saved cursor, the collector resumes from the newest 100 retained events and records the previous cursor on the first recovered event.
 
 ## Queue, recovery and diagnostics
 
